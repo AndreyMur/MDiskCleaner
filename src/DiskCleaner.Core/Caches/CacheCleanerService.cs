@@ -132,6 +132,11 @@ public sealed class CacheCleanerService
 
         if (exists && item.AllowDirectDelete && !nativeEffective)
         {
+            if (nativeRan)
+            {
+                notes.Add("Штатная команда не уменьшила размер — применено прямое удаление");
+            }
+
             directDeletion = await _deleter.DeleteAsync(item, cancellationToken);
             foreach (var error in directDeletion.Errors)
             {

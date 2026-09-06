@@ -29,14 +29,14 @@ public sealed class CategorizationService
             return CleanupCategory.Leftover;
         }
 
-        if (segments.Any(s => CacheSegments.Contains(s)))
-        {
-            return CleanupCategory.Cache;
-        }
-
         if (segments.Any(s => ToolchainSegments.Contains(s)))
         {
             return CleanupCategory.DevToolchain;
+        }
+
+        if (segments.Any(s => CacheSegments.Contains(s)))
+        {
+            return CleanupCategory.Cache;
         }
 
         if (segments.Any(s => TempSegments.Contains(s)))
