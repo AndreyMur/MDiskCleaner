@@ -7,6 +7,12 @@ public sealed class DirectoryScanner
 {
     private readonly ScanOptions _options;
 
+    /// <summary>
+    /// Тестовая заглушка измерения корня (заменяет реальный обход файловой системы).
+    /// Используется только в integration-тестах таймаута ветки.
+    /// </summary>
+    internal Func<string, CancellationToken, Task<DirectoryMeasurement>>? MeasureOverride { get; set; }
+
     public DirectoryScanner(ScanOptions? options = null)
     {
         _options = options ?? new ScanOptions();
@@ -32,7 +38,7 @@ public sealed class DirectoryScanner
             },
             async (root, token) =>
             {
-                var measurement = await MeasureRootAsync(root, context);
+                var measurement = await MeasureRootGuardedAsync(root, context, token);
                 context.AddRootResult(root, measurement);
             });
 
@@ -44,7 +50,69 @@ public sealed class DirectoryScanner
         };
     }
 
-    private async Task<DirectoryMeasurement> MeasureRootAsync(string root, ScanContext context)
+    private async Task<DirectoryMeasurement> MeasureRootGuardedAsync(
+        string root,
+        ScanContext context,
+        CancellationToken cancellationToken)
+    {
+        Task<DirectoryMeasurement> MeasureAsync(string target, CancellationToken token) =>
+            MeasureOverride is null
+                ? MeasureRealRootAsync(target, context, token)
+                : MeasureOverride(target, token);
+
+        var timeout = _options.BranchTimeout;
+        if (timeout is null || timeout <= TimeSpan.Zero)
+        {
+            return await MeasureAsync(root, cancellationToken);
+        }
+
+        using var branchCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        var measureTask = MeasureAsync(root, branchCts.Token);
+
+        while (true)
+        {
+            if (measureTask.IsCompleted)
+            {
+                return await measureTask;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return await measureTask;
+            }
+
+            if (System.Diagnostics.Stopwatch.GetElapsedTime(startedAt) >= timeout.Value)
+            {
+                branchCts.Cancel();
+                try
+                {
+                    return await measureTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return TimeoutMeasurement(root, context, timeout.Value);
+                }
+                catch (TimeoutException)
+                {
+                    return TimeoutMeasurement(root, context, timeout.Value);
+                }
+            }
+
+            await Task.Delay(5, cancellationToken);
+        }
+    }
+
+    private DirectoryMeasurement TimeoutMeasurement(string root, ScanContext context, TimeSpan timeout)
+    {
+        context.RecordBranchTimeout(root, timeout);
+        return new DirectoryMeasurement(root, 0, 0, Directory.Exists(root), TimedOut: true);
+    }
+
+    private async Task<DirectoryMeasurement> MeasureRealRootAsync(
+        string root,
+        ScanContext context,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -62,7 +130,7 @@ public sealed class DirectoryScanner
                 return new DirectoryMeasurement(fullRoot, size, 1, true);
             }
 
-            var (bytes, files) = await MeasureDirectoryAsync(fullRoot, 0, context);
+            var (bytes, files) = await MeasureDirectoryAsync(fullRoot, 0, context, cancellationToken);
             return new DirectoryMeasurement(fullRoot, bytes, files, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException or DirectoryNotFoundException)
@@ -75,7 +143,8 @@ public sealed class DirectoryScanner
     private async Task<(long Bytes, long Files)> MeasureDirectoryAsync(
         string directoryPath,
         int depth,
-        ScanContext context)
+        ScanContext context,
+        CancellationToken cancellationToken)
     {
         List<NativeDirectory.Entry> entries;
         try
@@ -94,7 +163,7 @@ public sealed class DirectoryScanner
 
         foreach (var entry in entries)
         {
-            context.ThrowIfCancelled();
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (entry.IsDirectory)
             {
@@ -119,8 +188,8 @@ public sealed class DirectoryScanner
             {
                 foreach (var subDirectory in subDirectories)
                 {
-                    context.ThrowIfCancelled();
-                    var child = await MeasureDirectoryAsync(subDirectory, depth + 1, context);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var child = await MeasureDirectoryAsync(subDirectory, depth + 1, context, cancellationToken);
                     childrenBytes += child.Bytes;
                     childrenFiles += child.Files;
                 }
@@ -129,7 +198,7 @@ public sealed class DirectoryScanner
             {
                 var children = await Task.WhenAll(
                     subDirectories.Select(subDirectory =>
-                        MeasureDirectoryAsync(subDirectory, depth + 1, context)));
+                        MeasureDirectoryAsync(subDirectory, depth + 1, context, cancellationToken)));
                 foreach (var child in children)
                 {
                     childrenBytes += child.Bytes;
@@ -138,6 +207,7 @@ public sealed class DirectoryScanner
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         context.DirectoryCompleted(directoryPath, levelBytes);
         return (levelBytes + childrenBytes, levelFiles + childrenFiles);
     }
@@ -206,6 +276,21 @@ public sealed class DirectoryScanner
             }
 
             Log.Warning("Scan error: {Path}: {Message}", path, message);
+        }
+
+        public void RecordBranchTimeout(string path, TimeSpan timeout)
+        {
+            lock (_sync)
+            {
+                if (_errors.Count >= _options.MaxRecordedErrors)
+                {
+                    return;
+                }
+
+                _errors.Add($"Превышен таймаут измерения ветки ({timeout}): {path}");
+            }
+
+            Log.Warning("Branch scan timed out after {Timeout}: {Path}", timeout, path);
         }
 
         public void AddRootResult(string root, DirectoryMeasurement measurement)

@@ -2,6 +2,12 @@ using DiskCleaner.Core.Models;
 
 namespace DiskCleaner.Core.Analysis;
 
+/// <summary>
+/// Чистая логика «категория + риск» для путей и объектов очистки (FR-1.6).
+/// Низкий риск: кэши, Temp, Корзина, `*-updater` (регенерируются).
+/// Средний риск: тулчейны/SDK/остатки (перекачиваются/переустанавливаются, требуют согласия).
+/// Высокий риск: папки программ и пользовательские данные (не предлагать к автоудалению).
+/// </summary>
 public sealed class CategorizationService
 {
     private static readonly HashSet<string> CacheSegments = new(StringComparer.OrdinalIgnoreCase)
@@ -18,7 +24,7 @@ public sealed class CategorizationService
 
     private static readonly HashSet<string> ToolchainSegments = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".rustup", ".jdks", "jdks", "android", "sdk", "program files (x86)", "android studio"
+        ".rustup", ".jdks", "jdks", "android", "sdk"
     };
 
     public CleanupCategory CategorizePath(string path)
@@ -51,12 +57,45 @@ public sealed class CategorizationService
     {
         CleanupCategory.Cache => CleanupRisk.Low,
         CleanupCategory.Temp => CleanupRisk.Low,
-        CleanupCategory.DevToolchain => CleanupRisk.Medium,
+        CleanupCategory.RecycleBin => CleanupRisk.Low,
         CleanupCategory.Leftover => CleanupRisk.Medium,
+        CleanupCategory.DevToolchain => CleanupRisk.Medium,
         CleanupCategory.SystemFile => CleanupRisk.Medium,
-        CleanupCategory.RecycleBin => CleanupRisk.Medium,
+        CleanupCategory.InstalledApp => CleanupRisk.High,
+        CleanupCategory.UserData => CleanupRisk.High,
         _ => CleanupRisk.High
     };
+
+    /// <summary>
+    /// Риск для пути: папки апдейтеров (`*-updater`) регенерируются при следующем обновлении,
+    /// поэтому относятся к низкому риску, хотя категоризируются как Leftover.
+    /// Папки программ и пользовательские данные не имеют признаков кэша/Temp и получают
+    /// категорию Other → высокий риск (не предлагать к автоудалению).
+    /// </summary>
+    public CleanupRisk RiskForPath(string path)
+    {
+        if (SplitSegments(path).Any(IsUpdater))
+        {
+            return CleanupRisk.Low;
+        }
+
+        return RiskForCategory(CategorizePath(path));
+    }
+
+    /// <summary>Действие по умолчанию, выводимое из уровня риска (FR-1.6).</summary>
+    public CleanupDefaultAction DefaultAction(CleanupRisk risk) => risk switch
+    {
+        CleanupRisk.Low => CleanupDefaultAction.Clean,
+        CleanupRisk.Medium => CleanupDefaultAction.Ask,
+        _ => CleanupDefaultAction.Keep
+    };
+
+    /// <summary>
+    /// Действие по умолчанию для объекта: используемые объекты (IN_USE) никогда не
+    /// предлагаются к автоудалению (FR-1.7), остальные — по уровню риска.
+    /// </summary>
+    public CleanupDefaultAction DefaultActionFor(CleanupItem item) =>
+        item.InUse ? CleanupDefaultAction.Keep : DefaultAction(item.Risk);
 
     private static bool IsUpdater(string segment) =>
         segment.EndsWith("-updater", StringComparison.OrdinalIgnoreCase);
