@@ -1,0 +1,134 @@
+using System.Diagnostics;
+using DiskCleaner.Core.Caches;
+using DiskCleaner.Core.Cleaning;
+using DiskCleaner.Core.Elevated;
+using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Processes;
+
+namespace DiskCleaner.Tests;
+
+public class InUseSafetyTests
+{
+    private static CleanupItem Item(string path, bool requiresAdmin = false) => new()
+    {
+        Key = "inuse:" + path,
+        Path = path,
+        DisplayName = Path.GetFileName(path),
+        Category = CleanupCategory.Cache,
+        Risk = CleanupRisk.Low,
+        Target = CleanupTarget.Directory,
+        RequiresAdmin = requiresAdmin
+    };
+
+    [Fact]
+    public async Task Clean_ItemInUseAtRunTime_IsSkipped_NotDeleted()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("InUseNow");
+        root.CreateFile("InUseNow\\a.bin", 500);
+
+        var fakeProcesses = new FakeProcessInspector(
+            new RunningProcessInfo(Path.Combine(dir, "app.exe"), "app"));
+        var executor = new PlanExecutor(
+            localCleaner: new CacheCleanerService(),
+            elevatedRunner: new ElevatedScenarioRunner(),
+            processInspector: fakeProcesses);
+
+        var report = await executor.CleanAsync([Item(dir)]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.InUseSkipped, entry.Outcome);
+        Assert.True(Directory.Exists(dir), "Объект, используемый процессом, не должен удаляться.");
+    }
+
+    [Fact]
+    public async Task Clean_AdminItemInUse_IsNotSentToElevatedBatch()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("AdminInUse");
+        root.CreateFile("AdminInUse\\a.bin", 200);
+
+        var fakeProcesses = new FakeProcessInspector(
+            new RunningProcessInfo(Path.Combine(dir, "code.exe"), "code"));
+        var elevated = new RecordingElevatedRunner();
+        var executor = new PlanExecutor(
+            localCleaner: new CacheCleanerService(),
+            elevatedRunner: elevated,
+            processInspector: fakeProcesses);
+
+        var report = await executor.CleanAsync([Item(dir, requiresAdmin: true)]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.InUseSkipped, entry.Outcome);
+        Assert.Null(elevated.InvokedScenario);
+    }
+
+    [Fact]
+    public async Task Clean_RunningExecutableInsideTarget_IsDetected_AndSkipped()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var root = new TempRoot();
+        var dir = root.Combine("running-app");
+        var source = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        if (!File.Exists(source))
+        {
+            return;
+        }
+
+        var copiedExe = Path.Combine(dir, "app.exe");
+        File.Copy(source, copiedExe);
+
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = copiedExe,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
+
+        try
+        {
+            process.Start();
+
+            var executor = new PlanExecutor(
+                localCleaner: new CacheCleanerService(),
+                elevatedRunner: new ElevatedScenarioRunner());
+
+            var report = await executor.CleanAsync([Item(dir)]);
+
+            var entry = Assert.Single(report.Entries);
+            Assert.Equal(CleanOutcome.InUseSkipped, entry.Outcome);
+            Assert.True(File.Exists(copiedExe));
+        }
+        finally
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private sealed class RecordingElevatedRunner : IElevatedRunner
+    {
+        public ElevatedScenario? InvokedScenario { get; private set; }
+
+        public Task<ElevatedJournal> RunAsync(ElevatedScenario scenario, CancellationToken cancellationToken = default)
+        {
+            InvokedScenario = scenario;
+            return Task.FromResult(new ElevatedJournal { Results = scenario.Steps.Select(s => new ElevatedStepResult { Id = s.Id, Success = true }).ToList() });
+        }
+    }
+}
