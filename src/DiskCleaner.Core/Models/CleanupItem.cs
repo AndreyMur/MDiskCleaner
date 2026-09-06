@@ -30,7 +30,11 @@ public sealed class CleanupItem
 
     public bool RequiresAdmin { get; init; }
 
-    public bool IsGroup => string.IsNullOrEmpty(Path);
+    public bool CommandOnly { get; init; }
+
+    public bool AllowDirectDelete { get; init; } = true;
+
+    public bool IsGroup => string.IsNullOrEmpty(Path) && !CommandOnly;
 
     public IReadOnlyList<string> OwnerProcessNames { get; init; } = Array.Empty<string>();
 

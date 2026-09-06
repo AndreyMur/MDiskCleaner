@@ -223,15 +223,22 @@ public sealed class DirectoryScanner
         {
             var directories = Interlocked.Read(ref _directoriesCompleted);
             var bytes = Interlocked.Read(ref _bytesMeasured);
-            var lastReported = Interlocked.Read(ref _lastReportedDirectories);
 
-            if (directories - lastReported < _options.ProgressDirectoryStep &&
-                bytes < _options.ProgressBytesStep)
+            bool shouldReport;
+            lock (_sync)
             {
-                return;
-            }
+                shouldReport =
+                    directories - _lastReportedDirectories >= _options.ProgressDirectoryStep ||
+                    bytes - _lastReportedBytes >= _options.ProgressBytesStep;
 
-            Interlocked.Exchange(ref _lastReportedDirectories, directories);
+                if (!shouldReport)
+                {
+                    return;
+                }
+
+                _lastReportedDirectories = directories;
+                _lastReportedBytes = bytes;
+            }
 
             _progress?.Report(new ScanProgress(
                 _currentPath,
@@ -242,5 +249,7 @@ public sealed class DirectoryScanner
         }
 
         private void AddBytes(long bytes) => Interlocked.Add(ref _bytesMeasured, bytes);
+
+        private long _lastReportedBytes;
     }
 }

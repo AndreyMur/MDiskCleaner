@@ -30,15 +30,19 @@ public sealed class AnalysisService
     {
         var startedAt = DateTime.UtcNow;
         var leaves = DescendantLeaves(seeds).ToList();
+        var pathLeaves = leaves.Where(l => !string.IsNullOrEmpty(l.Path)).ToList();
+        var commandLeaves = leaves.Where(l => string.IsNullOrEmpty(l.Path)).ToList();
+
         var outcome = await _scanner.MeasureAsync(
-            leaves.Select(l => l.Path!).ToList(),
+            pathLeaves.Select(l => l.Path!).ToList(),
             cancellationToken,
             progress);
 
-        var measured = new List<CleanupItem>();
+        var measured = new List<CleanupItem>(pathLeaves.Count + commandLeaves.Count);
+        measured.AddRange(commandLeaves);
         var skippedNonexistent = 0;
 
-        foreach (var leaf in leaves)
+        foreach (var leaf in pathLeaves)
         {
             if (leaf.Path is null || !outcome.Results.TryGetValue(leaf.Path, out var measurement))
             {
