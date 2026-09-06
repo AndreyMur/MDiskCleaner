@@ -20,6 +20,11 @@ public sealed class CleanupItem
 
     public string? Warning { get; init; }
 
+    /// <summary>Запись требует ручной проверки (подозрительный издатель/имя), FR-1.10.</summary>
+    public string? ReviewReason { get; init; }
+
+    public bool ReviewManually => !string.IsNullOrWhiteSpace(ReviewReason);
+
     public string? ManagerName { get; init; }
 
     public string? CleanCommand { get; init; }

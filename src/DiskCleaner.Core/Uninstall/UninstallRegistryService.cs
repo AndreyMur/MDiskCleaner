@@ -71,14 +71,14 @@ public sealed class UninstallRegistryService
                 continue;
             }
 
-            var displayName = ReadString(key, "DisplayName");
+            var displayName = ReadString(key, "DisplayName")?.Trim();
             if (string.IsNullOrWhiteSpace(displayName))
             {
                 continue;
             }
 
-            var uninstallString = ReadString(key, "UninstallString");
-            var installLocation = ReadString(key, "InstallLocation");
+            var uninstallString = ReadString(key, "UninstallString")?.Trim();
+            var installLocation = ReadString(key, "InstallLocation")?.Trim();
             if (!string.IsNullOrWhiteSpace(installLocation))
             {
                 installLocation = _environment.ExpandPath(installLocation);
@@ -89,12 +89,12 @@ public sealed class UninstallRegistryService
                 ProductCode = productCode,
                 ScopeKey = ScopeKeyOf(branch),
                 DisplayName = displayName,
-                Publisher = ReadString(key, "Publisher"),
-                DisplayVersion = ReadString(key, "DisplayVersion"),
-                InstallDate = ReadString(key, "InstallDate"),
+                Publisher = ReadString(key, "Publisher")?.Trim(),
+                DisplayVersion = ReadString(key, "DisplayVersion")?.Trim(),
+                InstallDate = ReadString(key, "InstallDate")?.Trim(),
                 InstallLocation = string.IsNullOrWhiteSpace(installLocation) ? null : installLocation,
                 UninstallString = string.IsNullOrWhiteSpace(uninstallString) ? null : uninstallString,
-                QuietUninstallString = ReadString(key, "QuietUninstallString"),
+                QuietUninstallString = ReadString(key, "QuietUninstallString")?.Trim(),
                 EstimatedSizeBytes = ReadEstimatedSizeBytes(key),
                 IsSystemComponent = ReadInt(key, "SystemComponent") == 1,
                 IsWindowsInstaller = IsWindowsInstallerKey(uninstallString, key)

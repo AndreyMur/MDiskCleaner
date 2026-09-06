@@ -2,6 +2,7 @@ using DiskCleaner.Core.Analysis;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Processes;
 using DiskCleaner.Core.Scanning;
+using DiskCleaner.Core.Uninstall;
 
 namespace DiskCleaner.Tests;
 
@@ -229,6 +230,65 @@ public class ScannerAndAnalysisTests
     }
 
     [Fact]
+    public async Task AnalysisService_InstalledAppSeed_MeasuresRealInstallFolderSize()
+    {
+        using var root = new TempRoot();
+        var installDir = root.Combine("Android Studio");
+        root.CreateFile("Android Studio\\bin\\studio64.exe", 3000);
+        root.CreateFile("Android Studio\\lib\\app.jar", 7000);
+
+        var app = InstalledSoftware("aaa", "Android Studio", installDir, estimatedBytes: 4096);
+        var seeds = BuildSeeds([app]);
+
+        var analysis = new AnalysisService(processInspector: new FakeProcessInspector());
+        var result = await analysis.AnalyzeAsync(seeds);
+
+        var leaf = Assert.Single(result.Items);
+        Assert.Equal(CleanupCategory.InstalledApp, leaf.Category);
+        Assert.Equal(installDir, leaf.Path);
+        Assert.Equal(10000, leaf.SizeBytes);
+        Assert.Equal(0, result.SkippedNonexistent);
+    }
+
+    [Fact]
+    public async Task AnalysisService_InstalledAppWithoutInstallFolder_KeepsRegistryEstimate()
+    {
+        var app = InstalledSoftware("bbb", "Java 17", location: null, estimatedBytes: 4096);
+        var seeds = BuildSeeds([app]);
+
+        var analysis = new AnalysisService(processInspector: new FakeProcessInspector());
+        var result = await analysis.AnalyzeAsync(seeds);
+
+        var leaf = Assert.Single(result.Items);
+        Assert.Null(leaf.Path);
+        Assert.Equal(4096, leaf.SizeBytes);
+        Assert.Equal(0, result.SkippedNonexistent);
+    }
+
+    [Fact]
+    public async Task AnalysisService_MarksInstalledAppInUse_WhenProcessRunsFromInstallFolder()
+    {
+        using var root = new TempRoot();
+        var installDir = root.Combine("Android SDK");
+        root.CreateFile("Android SDK\\platform-tools\\adb.exe", 42);
+
+        var app = InstalledSoftware("ccc", "Android SDK Tools", installDir, estimatedBytes: 2048);
+        var seeds = BuildSeeds([app]);
+
+        var processes = new[]
+        {
+            new RunningProcessInfo(Path.Combine(installDir, "platform-tools", "adb.exe"), "adb")
+        };
+        var analysis = new AnalysisService(processInspector: new FakeProcessInspector(processes));
+        var result = await analysis.AnalyzeAsync(seeds);
+
+        var leaf = Assert.Single(result.Items);
+        Assert.True(leaf.InUse);
+        Assert.Equal(1, result.InUseItems);
+        Assert.Equal(CleanupDefaultAction.Keep, new CategorizationService().DefaultActionFor(leaf));
+    }
+
+    [Fact]
     public void InUseDetector_MarksByExecutablePathInsideTarget()
     {
         using var root = new TempRoot();
@@ -299,4 +359,33 @@ public class ScannerAndAnalysisTests
         Assert.Equal(1, result.TimedOutBranches);
         Assert.Equal(0, result.SkippedNonexistent);
     }
+
+    private static IReadOnlyList<CleanupItem> BuildSeeds(IReadOnlyList<InstalledApp> apps)
+    {
+        var planner = new UninstallPlannerService(registry: new UninstallRegistryService(branches: []));
+        return planner.BuildSeedsFrom(
+            apps,
+            new UninstallPlannerOptions
+            {
+                IncludeAllApps = true,
+                IncludeOrphanedRegistryEntries = false
+            });
+    }
+
+    private static InstalledApp InstalledSoftware(
+        string id,
+        string displayName,
+        string? location,
+        long estimatedBytes) => new()
+    {
+        ProductCode = "{" + id.PadLeft(8, '0') + "}",
+        ScopeKey = nameof(InstalledAppScope.LocalMachine32),
+        DisplayName = displayName,
+        Publisher = "ACME",
+        DisplayVersion = "1.0.0",
+        InstallDate = "20240101",
+        InstallLocation = location,
+        EstimatedSizeBytes = estimatedBytes,
+        UninstallString = "\"C:\\fake\\unins000.exe\""
+    };
 }

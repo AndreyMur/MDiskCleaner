@@ -100,6 +100,9 @@ public sealed class ReportItemJson
 
     public bool InUse { get; init; }
 
+    /// <summary>Причина ручной проверки (FR-1.10), когда запись помечена как «Review manually».</summary>
+    public string? ReviewReason { get; init; }
+
     public long? SizeBytes { get; init; }
 
     public long? FileCount { get; init; }
@@ -235,6 +238,7 @@ public static class ReportDocumentBuilder
         Command = entry.Item.CleanCommand,
         RequiresAdmin = entry.Item.RequiresAdmin,
         InUse = entry.Item.InUse,
+        ReviewReason = entry.Item.ReviewReason,
         SizeBytes = entry.Item.EffectiveSizeBytes,
         FileCount = entry.Item.EffectiveFileCount,
         Outcome = entry.Outcome.ToString(),
@@ -257,6 +261,7 @@ public static class ReportDocumentBuilder
         Command = item.CleanCommand,
         RequiresAdmin = item.RequiresAdmin,
         InUse = item.InUse,
+        ReviewReason = item.ReviewReason,
         SizeBytes = item.EffectiveSizeBytes,
         FileCount = item.EffectiveFileCount,
         Outcome = null,

@@ -61,22 +61,23 @@ public sealed partial class InstalledAppAnalyzer
                 }
             }
 
-            if (string.IsNullOrWhiteSpace(app.Publisher))
+            if (IsSuspiciousPublisher(app.Publisher, out var publisherReason))
             {
                 anomalies.Add(AppAnomalyKind.SuspiciousPublisher);
-                notes.Add("Пустой издатель (Publisher).");
-            }
-            else if (SuspiciousTokens.Any(t => app.Publisher.Contains(t, StringComparison.OrdinalIgnoreCase)))
-            {
-                anomalies.Add(AppAnomalyKind.SuspiciousPublisher);
-                notes.Add($"Издатель содержит подозрительный токен: {app.Publisher}");
+                notes.Add(publisherReason);
             }
 
-            if (SuspiciousTokens.Any(t => app.DisplayName.Contains(t, StringComparison.OrdinalIgnoreCase)) ||
-                IsDomainLike(app.DisplayName))
+            if (IsSuspiciousName(app.DisplayName, out var nameReason))
             {
                 anomalies.Add(AppAnomalyKind.SuspiciousDomain);
-                notes.Add("Имя продукта похоже на домен/подозрительный идентификатор.");
+                notes.Add(nameReason);
+            }
+
+            var requiresReview = anomalies.Contains(AppAnomalyKind.SuspiciousPublisher)
+                || anomalies.Contains(AppAnomalyKind.SuspiciousDomain);
+            if (requiresReview)
+            {
+                anomalies.Add(AppAnomalyKind.ReviewManually);
             }
 
             result.Add(new InstalledAppAnalysis(
@@ -86,6 +87,60 @@ public sealed partial class InstalledAppAnalyzer
         }
 
         return result;
+    }
+
+    private static bool IsSuspiciousPublisher(string? publisher, out string reason)
+    {
+        if (string.IsNullOrWhiteSpace(publisher))
+        {
+            reason = "Пустой издатель (Publisher) — требует ручной проверки.";
+            return true;
+        }
+
+        if (SuspiciousTokens.Any(t => publisher.Contains(t, StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = $"Издатель содержит подозрительный токен: {publisher}";
+            return true;
+        }
+
+        if (TemplateVariableRegex().IsMatch(publisher))
+        {
+            reason = $"Издатель содержит нераскрытую переменную шаблона: {publisher}";
+            return true;
+        }
+
+        if (IsDomainLike(publisher))
+        {
+            reason = $"Издатель похож на домен: {publisher}";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
+    }
+
+    private static bool IsSuspiciousName(string? name, out string reason)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            reason = string.Empty;
+            return false;
+        }
+
+        if (SuspiciousTokens.Any(t => name.Contains(t, StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = $"Имя продукта содержит подозрительный токен: {name}";
+            return true;
+        }
+
+        if (IsDomainLike(name))
+        {
+            reason = $"Имя продукта похоже на домен: {name}";
+            return true;
+        }
+
+        reason = string.Empty;
+        return false;
     }
 
     private static Dictionary<string, DuplicateMembership> BuildDuplicateMembership(IEnumerable<InstalledApp> apps)
@@ -119,7 +174,7 @@ public sealed partial class InstalledAppAnalyzer
         InstalledApp? best = null;
         foreach (var item in items)
         {
-            if (best is null || CompareInstallDate(item.InstallDate, best.InstallDate) > 0)
+            if (best is null || CompareKeepOrder(item, best) > 0)
             {
                 best = item;
             }
@@ -127,6 +182,65 @@ public sealed partial class InstalledAppAnalyzer
 
         return best?.ProductCode;
     }
+
+    /// <summary>Свежее предпочитается по дате установки, при равенстве — по более новой версии (FR-1.9).</summary>
+    private static int CompareKeepOrder(InstalledApp left, InstalledApp right)
+    {
+        var byDate = CompareInstallDate(left.InstallDate, right.InstallDate);
+        if (byDate != 0)
+        {
+            return byDate;
+        }
+
+        var byVersion = CompareVersions(left.DisplayVersion, right.DisplayVersion);
+        if (byVersion != 0)
+        {
+            return byVersion;
+        }
+
+        return string.CompareOrdinal(right.ProductCode, left.ProductCode);
+    }
+
+    private static int CompareVersions(string? left, string? right)
+    {
+        if (string.Equals(left, right, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.IsNullOrWhiteSpace(left))
+        {
+            return -1;
+        }
+
+        if (string.IsNullOrWhiteSpace(right))
+        {
+            return 1;
+        }
+
+        var leftNumbers = VersionNumbers(left);
+        var rightNumbers = VersionNumbers(right);
+        var common = Math.Min(leftNumbers.Length, rightNumbers.Length);
+        for (var i = 0; i < common; i++)
+        {
+            if (leftNumbers[i] != rightNumbers[i])
+            {
+                return leftNumbers[i] > rightNumbers[i] ? 1 : -1;
+            }
+        }
+
+        if (leftNumbers.Length != rightNumbers.Length)
+        {
+            return leftNumbers.Length > rightNumbers.Length ? 1 : -1;
+        }
+
+        return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int[] VersionNumbers(string value) =>
+        DigitRegex().Matches(value)
+            .Select(match => int.TryParse(match.Value, out var number) ? number : 0)
+            .ToArray();
 
     private static int CompareInstallDate(string? left, string? right)
     {
@@ -193,6 +307,12 @@ public sealed partial class InstalledAppAnalyzer
 
     [GeneratedRegex(@"^[a-z0-9\-\.]+\.[a-z]{2,}$")]
     private static partial Regex DomainRegex();
+
+    [GeneratedRegex(@"\$\{[^}]+\}")]
+    private static partial Regex TemplateVariableRegex();
+
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex DigitRegex();
 
     private sealed class DuplicateMembership
     {
