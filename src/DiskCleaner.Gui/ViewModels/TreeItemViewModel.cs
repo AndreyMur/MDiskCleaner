@@ -28,6 +28,27 @@ public sealed class TreeItemViewModel : ObservableObject
 
     public string DisplayName => Item.DisplayName;
 
+    /// <summary>Корневой узел дерева — группа категории (FR-1.11).</summary>
+    public bool IsCategoryRoot => _parent is null && Children.Count > 0;
+
+    /// <summary>
+    /// Сводка «число объектов» для категории (FR-1.11): показывается на корневом узле
+    /// категории рядом с суммарным размером. Для остальных узлов — пустая строка.
+    /// </summary>
+    public string CategoryObjectsText
+    {
+        get
+        {
+            if (!IsCategoryRoot)
+            {
+                return string.Empty;
+            }
+
+            var count = GetLeaves().Count();
+            return $"{count} {PluralObjects(count)}";
+        }
+    }
+
     public bool IsExpanded { get; set; } = true;
 
     public bool IsSelectable => Children.Count == 0;
@@ -101,6 +122,23 @@ public sealed class TreeItemViewModel : ObservableObject
             parent.OnPropertyChanged(nameof(IsChecked));
             parent = parent._parent;
         }
+    }
+
+    private static string PluralObjects(int count)
+    {
+        var mod10 = count % 10;
+        var mod100 = count % 100;
+        if (mod10 == 1 && mod100 != 11)
+        {
+            return "объект";
+        }
+
+        if (mod10 is >= 2 and <= 4 && mod100 is not (>= 12 and <= 14))
+        {
+            return "объекта";
+        }
+
+        return "объектов";
     }
 
     private static bool? ComputeAggregate(IEnumerable<TreeItemViewModel> children)

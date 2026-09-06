@@ -63,7 +63,7 @@ public sealed class RiskToBrushConverter : IValueConverter
 public sealed class BoolToInUseTextConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is true ? "используется" : string.Empty;
+        value is true ? "IN_USE" : string.Empty;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;

@@ -6,13 +6,16 @@ namespace DiskCleaner.Gui;
 
 public partial class MainWindow : Window
 {
-    private readonly MainViewModel _viewModel = new();
+    private readonly MainViewModel _viewModel;
 
-    public MainWindow()
+    public MainWindow(MainViewModel? viewModel = null)
     {
         InitializeComponent();
+        _viewModel = viewModel ?? new MainViewModel();
         DataContext = _viewModel;
     }
+
+    internal MainViewModel ViewModel => _viewModel;
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {

@@ -4,13 +4,14 @@
         xmlns:converters="clr-namespace:DiskCleaner.Gui.Converters"
         xmlns:viewModels="clr-namespace:DiskCleaner.Gui.ViewModels"
         Title="DiskCleaner — анализ, остатки и деинсталляция"
-        Height="760" Width="1240"
-        MinHeight="560" MinWidth="900"
+        Height="760" Width="1280"
+        MinHeight="560" MinWidth="980"
         WindowStartupLocation="CenterScreen"
         Loaded="OnLoaded">
 
     <Window.Resources>
-        <converters:LongToSizeTextConverter x:Key="SizeTextConverter" />        <converters:CategoryToTextConverter x:Key="CategoryTextConverter" />
+        <converters:LongToSizeTextConverter x:Key="SizeTextConverter" />
+        <converters:CategoryToTextConverter x:Key="CategoryTextConverter" />
         <converters:RiskToTextConverter x:Key="RiskTextConverter" />
         <converters:RiskToBrushConverter x:Key="RiskBrushConverter" />
         <converters:BoolToInUseTextConverter x:Key="InUseTextConverter" />
@@ -34,9 +35,18 @@
     </Window.Resources>
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#F3F3F3" Padding="10,8">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+        <Border DockPanel.Dock="Top" Background="#F3F3F3" Padding="10,6">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
                     <Button Style="{StaticResource ToolbarButton}"
                             Content="Анализ"
                             Command="{Binding AnalyzeCommand}" />
@@ -49,18 +59,42 @@
                     <Button Style="{StaticResource ToolbarButton}"
                             Content="Расписание"
                             Command="{Binding OpenSchedulerCommand}" />
-                    <CheckBox Margin="12,0,0,0"
+                </StackPanel>
+
+                <CheckBox Grid.Row="0" Grid.Column="1"
+                          Margin="12,0,0,0"
+                          VerticalAlignment="Center"
+                          FontSize="13"
+                          Content="Предпросмотр (dry-run)"
+                          IsChecked="{Binding DryRun}" />
+
+                <StackPanel Grid.Row="1" Grid.Column="0"
+                            Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="Источник:" VerticalAlignment="Center"
+                               FontSize="13" Margin="0,0,6,0" />
+                    <ComboBox Width="400"
+                              VerticalAlignment="Center"
+                              ItemsSource="{Binding Sources}"
+                              SelectedItem="{Binding SelectedSource}"
+                              IsEnabled="{Binding CanChangeSource}"
+                              DisplayMemberPath="DisplayName"
+                              ToolTip="Выберите диск для полного скана или режим «известные объекты» профиля/реестра/системы." />
+                    <CheckBox Margin="14,0,0,0"
                               VerticalAlignment="Center"
                               FontSize="13"
-                              Content="Предпросмотр (dry-run)"
-                              IsChecked="{Binding DryRun}" />
+                              Content="Включить системные каталоги (Windows и др.)"
+                              IsChecked="{Binding IncludeSystemDirectories}"
+                              IsEnabled="{Binding IsSystemDirectoriesToggleEnabled}"
+                              ToolTip="По умолчанию системные каталоги (Windows, System Volume Information, $Recycle.Bin, WindowsApps) игнорируются при полном скане диска (FR-1.2)." />
                 </StackPanel>
-                <TextBlock DockPanel.Dock="Right"
+
+                <TextBlock Grid.Row="1" Grid.Column="1"
                            VerticalAlignment="Center"
+                           Margin="12,6,0,0"
                            FontSize="13"
                            FontWeight="SemiBold"
                            Text="{Binding SelectedSummary}" />
-            </DockPanel>
+            </Grid>
         </Border>
 
         <Grid DockPanel.Dock="Bottom" Height="46"
@@ -87,8 +121,8 @@
 
         <Grid Margin="10">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2.4*" MinWidth="420" />
-                <ColumnDefinition Width="1.2*" MinWidth="330" />
+                <ColumnDefinition Width="2.4*" MinWidth="430" />
+                <ColumnDefinition Width="1.2*" MinWidth="340" />
             </Grid.ColumnDefinitions>
 
             <DockPanel Grid.Column="0" Margin="0,0,10,0">
@@ -113,6 +147,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
 
                                 <CheckBox Grid.Column="0"
@@ -122,8 +157,8 @@
                                           IsChecked="{Binding IsChecked, Mode=TwoWay}" />
 
                                 <TextBlock Grid.Column="1"
-                                           Margin="6,0,8,0"
                                            VerticalAlignment="Center"
+                                           Margin="6,0,8,0"
                                            Text="{Binding Item.DisplayName}"
                                            TextTrimming="CharacterEllipsis">
                                     <TextBlock.ToolTip>
@@ -136,20 +171,27 @@
                                 </TextBlock>
 
                                 <TextBlock Grid.Column="2"
+                                           Margin="8,0,0,0"
+                                           VerticalAlignment="Center"
+                                           FontSize="11"
+                                           Foreground="#888888"
+                                           Text="{Binding CategoryObjectsText}" />
+
+                                <TextBlock Grid.Column="3"
                                            Margin="4,0"
                                            VerticalAlignment="Center"
                                            FontSize="11"
                                            Text="{Binding Item.Risk, Converter={StaticResource RiskTextConverter}}"
                                            Foreground="{Binding Item.Risk, Converter={StaticResource RiskBrushConverter}}" />
 
-                                <TextBlock Grid.Column="3"
+                                <TextBlock Grid.Column="4"
                                            Margin="8,0,0,0"
                                            VerticalAlignment="Center"
                                            FontSize="12"
                                            FontWeight="SemiBold"
                                            Text="{Binding Item.EffectiveSizeBytes, Converter={StaticResource SizeTextConverter}}" />
 
-                                <TextBlock Grid.Column="4"
+                                <TextBlock Grid.Column="5"
                                            Margin="6,0,0,0"
                                            VerticalAlignment="Center"
                                            FontSize="11"
@@ -177,6 +219,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -219,6 +262,11 @@
                                            Text="{Binding SelectedNode.Item.Warning}"
                                            Foreground="#B46A00"
                                            TextWrapping="Wrap" />
+
+                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Метки:" Foreground="#666666" />
+                                <TextBlock Grid.Row="7" Grid.Column="1" Margin="6,0,0,2"
+                                           Text="{Binding SelectedNode.Item.InUse, Converter={StaticResource InUseTextConverter}}"
+                                           TextWrapping="Wrap" />
                             </Grid>
                         </StackPanel>
                     </ScrollViewer>
@@ -238,13 +286,14 @@
                           RowHeaderWidth="0"
                           SelectionMode="Single">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Объект" Width="1.6*" Binding="{Binding Name}" />
-                        <DataGridTextColumn Header="Риск" Width="64" Binding="{Binding Risk}" />
+                        <DataGridTextColumn Header="Объект" Width="1.5*" Binding="{Binding Name}" />
+                        <DataGridTextColumn Header="Риск" Width="58" Binding="{Binding Risk}" />
                         <DataGridTextColumn Header="Размер" Width="84" Binding="{Binding Size}" />
-                        <DataGridTextColumn Header="Админ" Width="52" Binding="{Binding AdminText}" />
-                        <DataGridTextColumn Header="Действие" Width="78" Binding="{Binding RecycleText}" />
-                        <DataGridTextColumn Header="Команда" Width="1.8*" Binding="{Binding Command}" />
-                        <DataGridTextColumn Header="Путь" Width="2*" Binding="{Binding Path}" />
+                        <DataGridTextColumn Header="Админ" Width="48" Binding="{Binding AdminText}" />
+                        <DataGridTextColumn Header="Действие" Width="86" Binding="{Binding DefaultActionText}" />
+                        <DataGridTextColumn Header="Метки" Width="130" Binding="{Binding FlagsText}" />
+                        <DataGridTextColumn Header="Команда" Width="1.5*" Binding="{Binding Command}" />
+                        <DataGridTextColumn Header="Путь" Width="1.5*" Binding="{Binding Path}" />
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>

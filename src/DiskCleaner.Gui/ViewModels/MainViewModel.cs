@@ -13,28 +13,44 @@ using DiskCleaner.Core.Scheduling;
 
 namespace DiskCleaner.Gui.ViewModels;
 
+/// <summary>
+/// ViewModel главного экрана «Анализ/План очистки» (FR-1.1, FR-1.11). Тонкий слой поверх ядра:
+/// выбор источника анализа (полный скан диска или известные объекты профиля/реестра/системы),
+/// запуск скана в фоне с прогрессом и отменой, дерево категорий и таблица плана. Вся бизнес-логика —
+/// в <see cref="IAnalysisCoordinator"/> и сервисах ядра.
+/// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
-    private readonly ScanSeedsProvider _seeds = new(includeAllApps: true);
-    private readonly AnalysisService _analysis = new();
-    private readonly PlanExecutor _plan = new();
-    private readonly SchedulerService _scheduler = new();
+    private readonly IAnalysisCoordinator _coordinator;
+    private readonly PlanExecutor _plan;
+    private readonly SchedulerService _scheduler;
     private CancellationTokenSource? _operationCts;
+    private AnalysisRunOptions _lastOptions = new();
+
+    public MainViewModel(IAnalysisCoordinator? coordinator = null)
+    {
+        _coordinator = coordinator ?? new AnalysisCoordinator();
+        _plan = new PlanExecutor();
+        _scheduler = new SchedulerService();
+        Sources = BuildSources();
+        SelectedSource = Sources.FirstOrDefault(s => s.IsDiskSource) ?? Sources.FirstOrDefault();
+        RefreshFreeSpace();
+        StatusText = "Готов к анализу. Выберите источник и нажмите «Анализ».";
+    }
+
+    /// <summary>Источники анализа: фиксированные диски + режим профиля/известных объектов.</summary>
+    public IReadOnlyList<AnalysisSourceOption> Sources { get; }
 
     public ObservableCollection<TreeItemViewModel> RootNodes { get; } = new();
 
     public ObservableCollection<PlanRowViewModel> PlanRows { get; } = new();
 
-    public MainViewModel()
-    {
-        RefreshFreeSpace();
-        StatusText = "Готов к анализу. Нажмите «Анализ».";
-    }
-
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CleanCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
+    [NotifyPropertyChangedFor(nameof(CanChangeSource))]
+    [NotifyPropertyChangedFor(nameof(IsSystemDirectoriesToggleEnabled))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -63,6 +79,22 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private TreeItemViewModel? _selectedNode;
 
+    /// <summary>Выбранный источник анализа (диск или профиль/известные объекты).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSystemDirectoriesToggleEnabled))]
+    private AnalysisSourceOption? _selectedSource;
+
+    /// <summary>Включать системные каталоги в полный скан диска (FR-1.2).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSystemDirectoriesToggleEnabled))]
+    private bool _includeSystemDirectories;
+
+    public bool CanChangeSource => !IsBusy;
+
+    /// <summary>Переключатель системных каталогов применим только к скану диска (FR-1.2).</summary>
+    public bool IsSystemDirectoriesToggleEnabled =>
+        !IsBusy && SelectedSource?.IsDiskSource == true;
+
     private bool CanStartOperation => !IsBusy;
 
     private bool CanCancelOperation => IsBusy;
@@ -70,16 +102,24 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStartOperation))]
     private async Task AnalyzeAsync()
     {
-        await RunAnalysisAsync("Анализ");
+        await RunAnalysisAsync("Анализ", CreateCurrentOptions());
     }
 
+    /// <summary>Анализ по расписанию: всегда режим известных объектов профиля/реестра/системы.</summary>
     public Task RunScheduledAnalysisAsync()
     {
         StatusText = "Запущен анализ по расписанию. Очистка выполняется только после подтверждения плана.";
-        return RunAnalysisAsync("Анализ (по расписанию)");
+        return RunAnalysisAsync("Анализ (по расписанию)", new AnalysisRunOptions());
     }
 
-    private async Task RunAnalysisAsync(string operationLabel)
+    private AnalysisRunOptions CreateCurrentOptions() => new()
+    {
+        DiskRootPath = SelectedSource?.RootPath,
+        IncludeSystemDirectories = IncludeSystemDirectories && SelectedSource?.IsDiskSource == true,
+        IncludeInstalledApps = true
+    };
+
+    private async Task RunAnalysisAsync(string operationLabel, AnalysisRunOptions options)
     {
         await RunOperationAsync(
             operationLabel,
@@ -93,9 +133,9 @@ public sealed partial class MainViewModel : ObservableObject
                     text.Report($"каталогов: {p.DirectoriesCompleted} · {CleanReportFormatter.FormatBytes(p.BytesMeasured)}{current}");
                 });
 
-                var seeds = await _seeds.BuildSeedsAsync(ct);
-                var result = await _analysis.AnalyzeAsync(seeds, scanProgress, ct);
-                await Application.Current.Dispatcher.InvokeAsync(() => ApplyAnalysis(result));
+                var result = await _coordinator.RunAsync(options, scanProgress, ct);
+                _lastOptions = options;
+                ApplyAnalysis(result);
             });
     }
 
@@ -145,8 +185,7 @@ public sealed partial class MainViewModel : ObservableObject
                     cleanProgress,
                     ct);
 
-                await Application.Current.Dispatcher.InvokeAsync(() =>
-                    ReportWindow.Show(owner, report));
+                ReportWindow.Show(owner, report);
 
                 if (!dryRun)
                 {
@@ -202,12 +241,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task RefreshAfterCleanAsync(CancellationToken ct)
     {
-        var seeds = await _seeds.BuildSeedsAsync(ct);
-        var result = await _analysis.AnalyzeAsync(seeds, null, ct);
-        await Application.Current.Dispatcher.InvokeAsync(() => ApplyAnalysis(result));
+        var result = await _coordinator.RunAsync(_lastOptions, null, ct);
+        ApplyAnalysis(result);
     }
 
-    private void ApplyAnalysis(AnalysisResult result)
+    internal void ApplyAnalysis(AnalysisResult result)
     {
         RootNodes.Clear();
         PlanRows.Clear();
@@ -287,6 +325,68 @@ public sealed partial class MainViewModel : ObservableObject
 
         return result == MessageBoxResult.OK;
     }
+
+    private static IReadOnlyList<AnalysisSourceOption> BuildSources()
+    {
+        var sources = new List<AnalysisSourceOption>();
+
+        string? profileRoot = null;
+        try
+        {
+            profileRoot = Path.GetPathRoot(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+        }
+
+        var drives = new List<(string Root, bool IsSystem)>();
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (drive.DriveType != DriveType.Fixed)
+                {
+                    continue;
+                }
+
+                var root = drive.RootDirectory.FullName;
+                var isSystem = string.Equals(root, profileRoot, StringComparison.OrdinalIgnoreCase);
+                drives.Add((root, isSystem));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        foreach (var systemDrive in drives.Where(d => d.IsSystem))
+        {
+            sources.Add(new AnalysisSourceOption
+            {
+                DisplayName = "Системный диск (" + FormatDrive(systemDrive.Root) + ") — полный скан",
+                RootPath = systemDrive.Root
+            });
+        }
+
+        foreach (var drive in drives.Where(d => !d.IsSystem))
+        {
+            sources.Add(new AnalysisSourceOption
+            {
+                DisplayName = "Диск " + FormatDrive(drive.Root) + " — полный скан",
+                RootPath = drive.Root
+            });
+        }
+
+        sources.Add(new AnalysisSourceOption
+        {
+            DisplayName = "Профиль и система: кэши, остатки, приложения (без полного скана диска)",
+            RootPath = null
+        });
+
+        return sources;
+    }
+
+    private static string FormatDrive(string root) =>
+        (root ?? string.Empty).TrimEnd('\\', '/');
 
     private void RefreshFreeSpace()
     {
