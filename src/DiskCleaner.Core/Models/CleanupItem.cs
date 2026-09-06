@@ -32,6 +32,8 @@ public sealed class CleanupItem
 
     public bool IsGroup => string.IsNullOrEmpty(Path);
 
+    public IReadOnlyList<string> OwnerProcessNames { get; init; } = Array.Empty<string>();
+
     public long? SizeBytes { get; set; }
 
     public long? FileCount { get; set; }
