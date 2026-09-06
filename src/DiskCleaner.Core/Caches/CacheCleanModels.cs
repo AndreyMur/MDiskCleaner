@@ -10,6 +10,8 @@ public enum CleanOutcome
     DirectDeleted,
     CommandOnlyCleaned,
     Partial,
+    MovedToRecycleBin,
+    Denied,
     Error,
     Uninstalled,
     RegistryEntryDeleted,

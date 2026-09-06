@@ -14,6 +14,14 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
     }
 
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (App.ScheduledScanRequested)
+        {
+            await _viewModel.RunScheduledAnalysisAsync();
+        }
+    }
+
     private void OnTreeSelectionChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is TreeItemViewModel node)

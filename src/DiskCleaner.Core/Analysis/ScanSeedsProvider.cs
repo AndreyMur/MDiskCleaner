@@ -12,6 +12,7 @@ public sealed class ScanSeedsProvider
     private readonly UninstallPlannerService _planner;
     private readonly LeftoverScannerService _leftoverScanner;
     private readonly ExclusionsStore _exclusions;
+    private readonly SystemScanSeedsProvider _systemSeeds;
     private readonly bool _includeAllApps;
 
     public ScanSeedsProvider(
@@ -20,6 +21,7 @@ public sealed class ScanSeedsProvider
         UninstallPlannerService? planner = null,
         LeftoverScannerService? leftoverScanner = null,
         ExclusionsStore? exclusions = null,
+        SystemScanSeedsProvider? systemSeeds = null,
         bool includeAllApps = false)
     {
         _catalog = catalog ?? new CacheCatalogService();
@@ -27,6 +29,7 @@ public sealed class ScanSeedsProvider
         _planner = planner ?? new UninstallPlannerService(registry: _registry);
         _leftoverScanner = leftoverScanner ?? new LeftoverScannerService();
         _exclusions = exclusions ?? new ExclusionsStore();
+        _systemSeeds = systemSeeds ?? new SystemScanSeedsProvider();
         _includeAllApps = includeAllApps;
     }
 
@@ -46,6 +49,8 @@ public sealed class ScanSeedsProvider
         var excluded = _exclusions.Load();
         var leftovers = _leftoverScanner.Scan(apps, excluded);
         seeds.AddRange(leftovers);
+
+        seeds.AddRange(_systemSeeds.BuildSeeds());
 
         return seeds;
     }

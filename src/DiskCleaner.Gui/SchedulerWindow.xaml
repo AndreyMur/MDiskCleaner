@@ -1,0 +1,75 @@
+<Window x:Class="DiskCleaner.Gui.SchedulerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Расписание анализа"
+        Width="480"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Loaded="OnLoaded">
+    <StackPanel Margin="14">
+        <GroupBox Padding="10,6">
+            <GroupBox.Header>
+                <TextBlock FontWeight="SemiBold" Text="Планировщик DiskCleaner" />
+            </GroupBox.Header>
+            <StackPanel>
+                <CheckBox x:Name="EnabledCheckBox"
+                          Content="Запускать анализ по расписанию"
+                          FontSize="13"
+                          Margin="0,4,0,8" />
+                <TextBlock Text="По расписанию выполняется только анализ диска. Очистка никогда не запускается автоматически — вы подтверждаете план вручную."
+                           TextWrapping="Wrap"
+                           Foreground="#666666"
+                           Margin="0,0,0,10" />
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="День недели:" VerticalAlignment="Center" />
+                    <ComboBox x:Name="DayComboBox"
+                              Grid.Row="0" Grid.Column="1"
+                              Width="180" HorizontalAlignment="Left" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Время:" VerticalAlignment="Center" Margin="0,6,0,0" />
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Margin="0,6,0,0">
+                        <ComboBox x:Name="HourComboBox" Width="64" />
+                        <TextBlock Text=":" VerticalAlignment="Center" Margin="4,0" />
+                        <ComboBox x:Name="MinuteComboBox" Width="64" />
+                        <TextBlock Text="(например, 09:30)"
+                                   VerticalAlignment="Center"
+                                   Foreground="#999999"
+                                   Margin="10,0,0,0" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </GroupBox>
+
+        <TextBlock x:Name="ErrorText"
+                   TextWrapping="Wrap"
+                   Foreground="#C42B1C"
+                   Margin="0,8,0,0"
+                   MinHeight="18" />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="SaveButton"
+                    Content="Применить"
+                    Width="100" Height="30"
+                    Click="SaveButton_Click" />
+            <Button x:Name="DeleteButton"
+                    Content="Отключить"
+                    Width="100" Height="30"
+                    Margin="8,0,0,0"
+                    Click="DeleteButton_Click" />
+            <Button x:Name="CloseButton"
+                    Content="Закрыть"
+                    Width="90" Height="30"
+                    Margin="8,0,0,0"
+                    IsCancel="True"
+                    Click="CloseButton_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

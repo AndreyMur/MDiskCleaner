@@ -16,12 +16,14 @@ public sealed class ElevatedScenarioBuilder
                 Kind = StepKindOf(item),
                 Path = item.Path,
                 Target = item.Target,
+                DeleteContentsOnly = item.DeleteContentsOnly,
                 FileName = item.CleanCommandFile,
                 Arguments = item.CleanCommandArgs,
                 TimeoutSec = 300,
                 ExitCodes = IsMsiexecCommand(item.CleanCommandFile) ? ExitCodePolicy.Msiexec : ExitCodePolicy.Generic,
                 RegistryHive = RegistryHiveOf(item),
-                RegistrySubKeyPath = item.RegistryDeletePath is null ? null : RegistryDeletePathBuilder.RelativePathOf(item.RegistryDeletePath)
+                RegistrySubKeyPath = item.RegistryDeletePath is null ? null : RegistryDeletePathBuilder.RelativePathOf(item.RegistryDeletePath),
+                ServiceName = item.ServiceName
             })
             .ToList();
 
@@ -94,6 +96,16 @@ public sealed class ElevatedScenarioBuilder
 
         var note = result.Note;
         var exitCode = result.ExitCode;
+
+        if (!item.UninstallMode)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.CommandOnlyCleaned,
+                0,
+                note ?? $"Команда выполнена успешно (код {exitCode}).");
+        }
+
         if (exitCode is UninstallExitCodes.ProductNotInstalled or UninstallExitCodes.InstallSourceAbsent)
         {
             return new CleanEntry(
@@ -120,6 +132,11 @@ public sealed class ElevatedScenarioBuilder
         if (item.RegistryDeletePath is not null)
         {
             return ElevatedStepKind.DeleteRegistryKey;
+        }
+
+        if (!string.IsNullOrEmpty(item.ServiceName))
+        {
+            return ElevatedStepKind.ServiceCleanDirectory;
         }
 
         if (item.UninstallMode || item.CleanCommandFile is not null)

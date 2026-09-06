@@ -40,6 +40,15 @@ public sealed class CleanupItem
     /// <summary>Означает «деинсталлировать ПО» через штатный деинсталлятор (никогда не прямое удаление).</summary>
     public bool UninstallMode { get; init; }
 
+    /// <summary>Удалять содержимое каталога, сохраняя сам каталог (очистка Temp/SoftwareDistribution).</summary>
+    public bool DeleteContentsOnly { get; init; }
+
+    /// <summary>Переместить в Корзину вместо безвозвратного удаления (Корзина-режим для пользовательских данных).</summary>
+    public bool MoveToRecycleBin { get; init; }
+
+    /// <summary>Имя службы, которую требуется остановить на время очистки каталога (elevated-шаг ServiceCleanDirectory).</summary>
+    public string? ServiceName { get; init; }
+
     public bool IsGroup => string.IsNullOrEmpty(Path) && string.IsNullOrEmpty(RegistryDeletePath) && !CommandOnly;
 
     public IReadOnlyList<string> OwnerProcessNames { get; init; } = Array.Empty<string>();

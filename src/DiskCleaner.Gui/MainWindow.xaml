@@ -6,11 +6,11 @@
         Title="DiskCleaner — анализ, остатки и деинсталляция"
         Height="760" Width="1240"
         MinHeight="560" MinWidth="900"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Loaded="OnLoaded">
 
     <Window.Resources>
-        <converters:LongToSizeTextConverter x:Key="SizeTextConverter" />
-        <converters:CategoryToTextConverter x:Key="CategoryTextConverter" />
+        <converters:LongToSizeTextConverter x:Key="SizeTextConverter" />        <converters:CategoryToTextConverter x:Key="CategoryTextConverter" />
         <converters:RiskToTextConverter x:Key="RiskTextConverter" />
         <converters:RiskToBrushConverter x:Key="RiskBrushConverter" />
         <converters:BoolToInUseTextConverter x:Key="InUseTextConverter" />
@@ -46,6 +46,9 @@
                     <Button Style="{StaticResource ToolbarButton}"
                             Content="Отмена"
                             Command="{Binding CancelCommand}" />
+                    <Button Style="{StaticResource ToolbarButton}"
+                            Content="Расписание"
+                            Command="{Binding OpenSchedulerCommand}" />
                     <CheckBox Margin="12,0,0,0"
                               VerticalAlignment="Center"
                               FontSize="13"
@@ -239,6 +242,7 @@
                         <DataGridTextColumn Header="Риск" Width="64" Binding="{Binding Risk}" />
                         <DataGridTextColumn Header="Размер" Width="84" Binding="{Binding Size}" />
                         <DataGridTextColumn Header="Админ" Width="52" Binding="{Binding AdminText}" />
+                        <DataGridTextColumn Header="Действие" Width="78" Binding="{Binding RecycleText}" />
                         <DataGridTextColumn Header="Команда" Width="1.8*" Binding="{Binding Command}" />
                         <DataGridTextColumn Header="Путь" Width="2*" Binding="{Binding Path}" />
                     </DataGrid.Columns>

@@ -54,6 +54,7 @@ public sealed class CategorizationService
         CleanupCategory.DevToolchain => CleanupRisk.Medium,
         CleanupCategory.Leftover => CleanupRisk.Medium,
         CleanupCategory.SystemFile => CleanupRisk.Medium,
+        CleanupCategory.RecycleBin => CleanupRisk.Medium,
         _ => CleanupRisk.High
     };
 

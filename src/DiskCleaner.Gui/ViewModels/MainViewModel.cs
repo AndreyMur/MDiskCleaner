@@ -9,6 +9,7 @@ using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
+using DiskCleaner.Core.Scheduling;
 
 namespace DiskCleaner.Gui.ViewModels;
 
@@ -17,6 +18,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ScanSeedsProvider _seeds = new(includeAllApps: true);
     private readonly AnalysisService _analysis = new();
     private readonly PlanExecutor _plan = new();
+    private readonly SchedulerService _scheduler = new();
     private CancellationTokenSource? _operationCts;
 
     public ObservableCollection<TreeItemViewModel> RootNodes { get; } = new();
@@ -68,8 +70,19 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStartOperation))]
     private async Task AnalyzeAsync()
     {
+        await RunAnalysisAsync("Анализ");
+    }
+
+    public Task RunScheduledAnalysisAsync()
+    {
+        StatusText = "Запущен анализ по расписанию. Очистка выполняется только после подтверждения плана.";
+        return RunAnalysisAsync("Анализ (по расписанию)");
+    }
+
+    private async Task RunAnalysisAsync(string operationLabel)
+    {
         await RunOperationAsync(
-            "Анализ",
+            operationLabel,
             async (ct, text) =>
             {
                 var scanProgress = new Progress<ScanProgress>(p =>
@@ -84,6 +97,21 @@ public sealed partial class MainViewModel : ObservableObject
                 var result = await _analysis.AnalyzeAsync(seeds, scanProgress, ct);
                 await Application.Current.Dispatcher.InvokeAsync(() => ApplyAnalysis(result));
             });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStartOperation))]
+    private void OpenScheduler()
+    {
+        var owner = Application.Current.MainWindow;
+        var scheduler = new SchedulerWindow(_scheduler, Environment.ProcessPath ?? string.Empty)
+        {
+            Owner = owner
+        };
+
+        if (scheduler.ShowDialog() == true)
+        {
+            StatusText = "Расписание обновлено. По расписанию выполняется только анализ — без удалений.";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanStartOperation))]
@@ -149,7 +177,7 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             await work(cts.Token, progress);
-            if (operation != "Анализ" && operation != "Очистка")
+            if (operation != "Анализ" && operation != "Анализ (по расписанию)" && operation != "Очистка")
             {
                 StatusText = operation + " завершена.";
             }

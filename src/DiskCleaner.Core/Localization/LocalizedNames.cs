@@ -12,6 +12,7 @@ public static class LocalizedNames
         CleanupCategory.InstalledApp => "Установленные программы",
         CleanupCategory.SystemFile => "Системные файлы",
         CleanupCategory.Temp => "Временные файлы",
+        CleanupCategory.RecycleBin => "Корзина",
         CleanupCategory.UserData => "Пользовательские данные",
         _ => "Прочее"
     };

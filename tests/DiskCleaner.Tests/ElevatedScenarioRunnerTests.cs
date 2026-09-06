@@ -36,7 +36,7 @@ public class ElevatedScenarioRunnerTests
     }
 
     [Fact]
-    public async Task DeletePath_NonexistentPath_IsError()
+    public async Task DeletePath_NonexistentPath_IsIdempotentSuccess()
     {
         var runner = new ElevatedScenarioRunner();
         var missing = Path.Combine(Path.GetTempPath(), "DiskCleaner.Tests", "missing-" + Guid.NewGuid().ToString("N"));
@@ -50,7 +50,8 @@ public class ElevatedScenarioRunnerTests
         });
 
         var result = Assert.Single(journal.Results);
-        Assert.False(result.Success);
+        Assert.True(result.Success);
+        Assert.Contains("отсутствует", result.Note);
     }
 
     [Fact]

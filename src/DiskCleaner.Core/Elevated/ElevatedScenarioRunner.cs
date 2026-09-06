@@ -1,7 +1,10 @@
+using System.ComponentModel;
+using System.ServiceProcess;
 using Microsoft.Win32;
 using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Scanning;
 using DiskCleaner.Core.Uninstall;
 
 namespace DiskCleaner.Core.Elevated;
@@ -51,6 +54,7 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
                 ElevatedStepKind.DeletePath => await DeletePathAsync(step, cancellationToken),
                 ElevatedStepKind.RunProcess => await RunProcessAsync(step, cancellationToken),
                 ElevatedStepKind.DeleteRegistryKey => DeleteRegistryKey(step),
+                ElevatedStepKind.ServiceCleanDirectory => await CleanServiceDirectoryAsync(step, cancellationToken),
                 _ => new ElevatedStepResult
                 {
                     Id = step.Id,
@@ -83,11 +87,29 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
             return new ElevatedStepResult { Id = step.Id, Success = false, Error = "Не задан путь удаления" };
         }
 
+        var probe = NativeDirectory.Probe(step.Path);
+        if (!probe.Exists)
+        {
+            return new ElevatedStepResult { Id = step.Id, Success = true, Note = "Объект уже отсутствует (идемпотентно)" };
+        }
+
         var target = step.Target ?? CleanupTarget.Directory;
         var outcome = await _deleter.DeletePathAsync(
             step.Path,
             target,
+            step.DeleteContentsOnly,
             cancellationToken);
+
+        if (outcome.Denied)
+        {
+            return new ElevatedStepResult
+            {
+                Id = step.Id,
+                Success = false,
+                FreedBytes = outcome.FreedBytes,
+                Error = string.Join("; ", outcome.Errors)
+            };
+        }
 
         return new ElevatedStepResult
         {
@@ -96,6 +118,168 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
             FreedBytes = outcome.FreedBytes,
             Error = outcome.Errors.Count == 0 ? null : string.Join("; ", outcome.Errors)
         };
+    }
+
+    private async Task<ElevatedStepResult> CleanServiceDirectoryAsync(
+        ElevatedStep step,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(step.Path) || string.IsNullOrWhiteSpace(step.ServiceName))
+        {
+            return new ElevatedStepResult
+            {
+                Id = step.Id,
+                Success = false,
+                Error = "Не заданы путь каталога и имя службы"
+            };
+        }
+
+        var probe = NativeDirectory.Probe(step.Path);
+        if (!probe.Exists)
+        {
+            return new ElevatedStepResult { Id = step.Id, Success = true, Note = "Каталог уже отсутствует (идемпотентно)" };
+        }
+
+        var errors = new List<string>();
+        var restartErrors = new List<string>();
+        var serviceNotes = new List<string>();
+        var originallyRunning = false;
+
+        using (var controller = OpenService(step.ServiceName))
+        {
+            if (controller is not null)
+            {
+                try
+                {
+                    controller.Refresh();
+                    originallyRunning = controller.Status == ServiceControllerStatus.Running;
+                    if (originallyRunning && !TryStopService(controller))
+                    {
+                        serviceNotes.Add($"Не удалось остановить службу '{step.ServiceName}' — очистка выполняется без остановки службы.");
+                        originallyRunning = false;
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                {
+                    serviceNotes.Add($"Служба '{step.ServiceName}' недоступна ({ex.Message}) — очистка выполняется без остановки службы.");
+                    originallyRunning = false;
+                }
+            }
+
+            try
+            {
+                var outcome = await _deleter.DeletePathAsync(
+                    step.Path,
+                    CleanupTarget.Directory,
+                    deleteContentsOnly: true,
+                    cancellationToken);
+
+                foreach (var deletionError in outcome.Errors)
+                {
+                    errors.Add(deletionError);
+                }
+
+                if (outcome.Denied)
+                {
+                    return new ElevatedStepResult
+                    {
+                        Id = step.Id,
+                        Success = false,
+                        FreedBytes = outcome.FreedBytes,
+                        Error = string.Join("; ", outcome.Errors)
+                    };
+                }
+
+                if (originallyRunning && controller is not null)
+                {
+                    try
+                    {
+                        if (!TryStartService(controller))
+                        {
+                            restartErrors.Add(
+                                $"Служба '{step.ServiceName}' не перезапущена автоматически в течение 30 секунд — запустите её вручную.");
+                        }
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                    {
+                        restartErrors.Add(
+                            $"Служба '{step.ServiceName}' не перезапущена автоматически: {ex.Message} — запустите её вручную.");
+                    }
+                }
+
+                var notes = new List<string>(serviceNotes);
+                if (outcome.FullyDeleted)
+                {
+                    notes.Add("Содержимое очищено.");
+                }
+                else if (outcome.FreedBytes > 0)
+                {
+                    notes.Add("Очищено частично (часть файлов заблокирована).");
+                }
+
+                var allErrors = errors.Concat(restartErrors).ToList();
+                return new ElevatedStepResult
+                {
+                    Id = step.Id,
+                    Success = allErrors.Count == 0 && outcome.FullyDeleted,
+                    FreedBytes = outcome.FreedBytes,
+                    Note = string.Join(" ", notes),
+                    Error = allErrors.Count == 0 ? null : string.Join("; ", allErrors)
+                };
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+        }
+    }
+
+    private static ServiceController? OpenService(string serviceName)
+    {
+        try
+        {
+            return new ServiceController(serviceName);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool TryStopService(ServiceController controller)
+    {
+        controller.Stop();
+        return WaitForStatus(controller, ServiceControllerStatus.Stopped);
+    }
+
+    private static bool TryStartService(ServiceController controller)
+    {
+        controller.Start();
+        return WaitForStatus(controller, ServiceControllerStatus.Running);
+    }
+
+    private static bool WaitForStatus(ServiceController controller, ServiceControllerStatus target)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                controller.Refresh();
+                if (controller.Status == target)
+                {
+                    return true;
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            Thread.Sleep(300);
+        }
+
+        return false;
     }
 
     private async Task<ElevatedStepResult> RunProcessAsync(

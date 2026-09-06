@@ -20,7 +20,7 @@ public sealed class CacheCleanerService
         DirectoryScanner? scanner = null,
         ICommandRunner? runner = null)
     {
-        _deleter = deleter ?? new DirectoryDeleter();
+        _deleter = deleter ?? new DirectoryDeleter(new RecycleBinService());
         _scanner = scanner ?? new DirectoryScanner();
         _runner = runner ?? new ProcessCommandRunner();
     }
@@ -84,6 +84,11 @@ public sealed class CacheCleanerService
         CleanOptions options,
         CancellationToken cancellationToken)
     {
+        if (item.MoveToRecycleBin)
+        {
+            return await MoveToRecycleBinAsync(item, cancellationToken);
+        }
+
         var notes = new List<string>();
         var startSize = item.SizeBytes ?? await MeasurePathAsync(item.Path);
 
@@ -163,6 +168,34 @@ public sealed class CacheCleanerService
         return new CleanEntry(item, outcome, freed, notes.Count == 0 ? null : string.Join("; ", notes));
     }
 
+    private async Task<CleanEntry> MoveToRecycleBinAsync(CleanupItem item, CancellationToken cancellationToken)
+    {
+        var outcome = await _deleter.DeleteAsync(item, cancellationToken);
+        if (outcome.Denied)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.Denied,
+                0,
+                string.Join("; ", outcome.Errors));
+        }
+
+        if (outcome.FullyDeleted)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.MovedToRecycleBin,
+                0,
+                "Перемещено в Корзину. Место освободится после её очистки.");
+        }
+
+        return new CleanEntry(
+            item,
+            CleanOutcome.Error,
+            0,
+            string.Join("; ", outcome.Errors));
+    }
+
     private async Task<CleanEntry> CleanCommandOnlyAsync(
         CleanupItem item,
         List<string> notes,
@@ -208,6 +241,11 @@ public sealed class CacheCleanerService
         long freed,
         bool stillExists)
     {
+        if (directDeletion is not null && directDeletion.Denied)
+        {
+            return CleanOutcome.Denied;
+        }
+
         if (directDeletion is not null && !directDeletion.FullyDeleted)
         {
             return CleanOutcome.Partial;
@@ -240,6 +278,15 @@ public sealed class CacheCleanerService
                 CleanOutcome.DryRun,
                 0,
                 "Будет пропущено (объект используется процессом)");
+        }
+
+        if (item.MoveToRecycleBin)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.DryRun,
+                0,
+                "Будет перемещено в Корзину (не удаляется безвозвратно)");
         }
 
         return new CleanEntry(
