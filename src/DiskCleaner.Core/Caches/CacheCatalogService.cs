@@ -69,7 +69,7 @@ public sealed class CacheCatalogService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var queryPath = await ResolveConfiguredPathAsync(definition.PathQuery, cancellationToken);
+            var queryPath = await ResolveConfiguredPathAsync(definition, cancellationToken);
             var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (queryPath is not null)
@@ -111,27 +111,145 @@ public sealed class CacheCatalogService
     }
 
     private async Task<string?> ResolveConfiguredPathAsync(
-        CommandDefinition? pathQuery,
+        CacheTargetDefinition definition,
         CancellationToken cancellationToken)
     {
-        if (pathQuery is null || string.IsNullOrWhiteSpace(pathQuery.FileName))
+        var pathQuery = definition.PathQuery;
+        if (pathQuery is not null && !string.IsNullOrWhiteSpace(pathQuery.FileName))
+        {
+            var result = await _runner.RunAsync(pathQuery, cancellationToken);
+            if (result.ExitCode == 0 && !result.TimedOut)
+            {
+                var commandPath = FirstRootedOutputPath(result.Output);
+                if (commandPath is not null)
+                {
+                    return commandPath;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.ConfigPathKey))
         {
             return null;
         }
 
-        var result = await _runner.RunAsync(pathQuery, cancellationToken);
-        if (result.ExitCode != 0 || result.TimedOut)
+        foreach (var configPathPattern in definition.ConfigFilePaths)
         {
-            return null;
+            if (string.IsNullOrWhiteSpace(configPathPattern))
+            {
+                continue;
+            }
+
+            string configPath;
+            try
+            {
+                configPath = _environment.ExpandPath(configPathPattern);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (!File.Exists(configPath))
+            {
+                continue;
+            }
+
+            var value = ReadIniKeyValue(configPath, definition.ConfigPathKey);
+            if (value is null)
+            {
+                continue;
+            }
+
+            var expandedValue = ExpandConfigPathValue(value);
+            if (expandedValue is not null)
+            {
+                return expandedValue;
+            }
         }
 
-        foreach (var line in result.Output.Split('\n'))
+        return null;
+    }
+
+    private static string? FirstRootedOutputPath(string output)
+    {
+        foreach (var line in output.Split('\n'))
         {
             var candidate = line.Trim().Trim('"').Trim();
             if (candidate.Length > 0 && Path.IsPathRooted(candidate))
             {
                 return candidate;
             }
+        }
+
+        return null;
+    }
+
+    private string? ExpandConfigPathValue(string value)
+    {
+        var trimmed = value.Trim().Trim('"', '\'');
+        if (trimmed.Length == 0)
+        {
+            return null;
+        }
+
+        if (trimmed == "~")
+        {
+            trimmed = _environment.UserProfile;
+        }
+        else if (trimmed.StartsWith("~/", StringComparison.OrdinalIgnoreCase) ||
+                 trimmed.StartsWith(@"~\", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = Path.Combine(_environment.UserProfile, trimmed.Substring(2));
+        }
+
+        string expanded;
+        try
+        {
+            expanded = _environment.ExpandPath(trimmed);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        return Path.IsPathRooted(expanded) ? expanded : null;
+    }
+
+    private static string? ReadIniKeyValue(string configPath, string key)
+    {
+        foreach (var rawLine in File.ReadAllLines(configPath))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line[0] is ';' or '#')
+            {
+                continue;
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator < 0)
+            {
+                separator = line.IndexOf(':');
+            }
+
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim().Trim('"', '\'');
+            if (!name.Equals(key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var value = line[(separator + 1)..].Trim();
+            if (value.Length == 0)
+            {
+                continue;
+            }
+
+            return value;
         }
 
         return null;

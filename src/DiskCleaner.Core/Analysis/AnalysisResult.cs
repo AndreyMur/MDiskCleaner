@@ -16,6 +16,8 @@ public sealed class AnalysisResult
 
     public int SkippedNonexistent { get; init; }
 
+    public int TimedOutBranches { get; init; }
+
     public long TotalBytes => Items.Sum(i => i.EffectiveSizeBytes);
 
     public long TotalFiles => Items.Sum(i => i.EffectiveFileCount);

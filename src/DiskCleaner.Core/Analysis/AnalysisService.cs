@@ -41,11 +41,18 @@ public sealed class AnalysisService
         var measured = new List<CleanupItem>(pathLeaves.Count + commandLeaves.Count);
         measured.AddRange(commandLeaves);
         var skippedNonexistent = 0;
+        var timedOutBranches = 0;
 
         foreach (var leaf in pathLeaves)
         {
             if (leaf.Path is null || !outcome.Results.TryGetValue(leaf.Path, out var measurement))
             {
+                continue;
+            }
+
+            if (measurement.TimedOut)
+            {
+                timedOutBranches++;
                 continue;
             }
 
@@ -72,7 +79,8 @@ public sealed class AnalysisService
             Errors = outcome.Errors,
             Elapsed = DateTime.UtcNow - startedAt,
             InUseItems = inUseItems,
-            SkippedNonexistent = skippedNonexistent
+            SkippedNonexistent = skippedNonexistent,
+            TimedOutBranches = timedOutBranches
         };
     }
 

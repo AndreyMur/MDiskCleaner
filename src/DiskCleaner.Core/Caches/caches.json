@@ -8,6 +8,8 @@
       "risk": "Low",
       "envPaths": [ "%LocalAppData%\\npm-cache" ],
       "pathQuery": { "fileName": "cmd.exe", "arguments": "/c npm config get cache", "timeoutSec": 20 },
+      "configPathKey": "cache",
+      "configFilePaths": [ "%USERPROFILE%\\.npmrc", "%APPDATA%\\npm\\etc\\npmrc" ],
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c npm cache clean --force", "timeoutSec": 300 },
       "description": "Кэш пакетов npm (содержимое node_modules на установку)",
       "warning": "При следующей установке/сборке пакеты будут загружены заново (трафик и время). Осиротевший кэш прежней конфигурации удаляется напрямую."
