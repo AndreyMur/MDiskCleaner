@@ -60,7 +60,9 @@ public class ProcessAndReportTests
 
         using var document = JsonDocument.Parse(json);
         Assert.Equal("clean", document.RootElement.GetProperty("mode").GetString());
-        Assert.Equal(42, document.RootElement.GetProperty("freedBytes").GetInt64());
-        Assert.Equal(1, document.RootElement.GetProperty("entries").GetArrayLength());
+        Assert.Equal(42, document.RootElement.GetProperty("summary").GetProperty("freedBytes").GetInt64());
+        Assert.Equal(1, document.RootElement.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, document.RootElement.GetProperty("removed").GetArrayLength());
+        Assert.Empty(document.RootElement.GetProperty("blocked").EnumerateArray());
     }
 }
