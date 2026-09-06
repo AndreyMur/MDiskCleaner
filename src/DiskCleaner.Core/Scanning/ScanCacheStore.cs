@@ -56,15 +56,17 @@ public sealed class ScanCacheStore
 
     public ScanCacheStore(string? cacheDirectory = null)
     {
-        cacheDirectory ??= Path.Combine(
-            System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
-            "DiskCleaner",
-            "scancache");
-
+        cacheDirectory ??= DefaultDirectory();
         Directory.CreateDirectory(cacheDirectory);
         _filePath = Path.Combine(cacheDirectory, DefaultCacheFileName);
         Load();
     }
+
+    /// <summary>Каталог по умолчанию для кэша и снапшотов скана (scancache).</summary>
+    public static string DefaultDirectory() => Path.Combine(
+        System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+        "DiskCleaner",
+        "scancache");
 
     /// <summary>Число записей, актуальных после последнего <see cref="Save"/>.</summary>
     public int LiveEntryCount
