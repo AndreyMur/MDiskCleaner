@@ -34,7 +34,13 @@ public sealed class CleanupItem
 
     public bool AllowDirectDelete { get; init; } = true;
 
-    public bool IsGroup => string.IsNullOrEmpty(Path) && !CommandOnly;
+    /// <summary>Означает «удалить запись реестра» (осиротевшая ветка Uninstall).</summary>
+    public string? RegistryDeletePath { get; init; }
+
+    /// <summary>Означает «деинсталлировать ПО» через штатный деинсталлятор (никогда не прямое удаление).</summary>
+    public bool UninstallMode { get; init; }
+
+    public bool IsGroup => string.IsNullOrEmpty(Path) && string.IsNullOrEmpty(RegistryDeletePath) && !CommandOnly;
 
     public IReadOnlyList<string> OwnerProcessNames { get; init; } = Array.Empty<string>();
 
