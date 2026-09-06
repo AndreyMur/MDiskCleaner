@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using DiskCleaner.Core.Caches;
 
 namespace DiskCleaner.Core.Reports;
@@ -34,29 +33,7 @@ public static class CleanReportFormatter
     }
 
     public static string ToJson(CleanReport report) =>
-        JsonSerializer.Serialize(
-            new
-            {
-                mode = report.DryRun ? "dry-run" : "clean",
-                freedBytes = report.TotalFreedBytes,
-                freedText = FormatBytes(report.TotalFreedBytes),
-                elapsedSeconds = Math.Round(report.Elapsed.TotalSeconds, 1),
-                failedItems = report.FailedItems,
-                deferredItems = report.DeferredItems,
-                entries = report.Entries.Select(e => new
-                {
-                    name = e.Item.DisplayName,
-                    group = e.Item.GroupName,
-                    category = e.Item.Category.ToString(),
-                    risk = e.Item.Risk.ToString(),
-                    path = e.Item.Path,
-                    command = e.Item.CleanCommand,
-                    outcome = e.Outcome.ToString(),
-                    freedBytes = e.FreedBytes,
-                    note = e.Note
-                })
-            },
-            new JsonSerializerOptions { WriteIndented = true });
+        ReportJson.Serialize(ReportDocumentBuilder.FromCleanReport(report));
 
     public static string FormatBytes(long bytes)
     {
@@ -79,7 +56,7 @@ public static class CleanReportFormatter
             : $"{value:0.##} {units[unit]}";
     }
 
-    private static string OutcomeText(CleanOutcome outcome) => outcome switch
+    public static string OutcomeText(CleanOutcome outcome) => outcome switch
     {
         CleanOutcome.DryRun => "предпросмотр",
         CleanOutcome.InUseSkipped => "отложено (используется)",
