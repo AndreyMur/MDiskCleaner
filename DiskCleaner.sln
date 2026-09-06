@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{FAC3EAC6
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiskCleaner.Tests", "tests\DiskCleaner.Tests\DiskCleaner.Tests.csproj", "{E34D6842-2F4B-4F97-B1E2-0CC99717832E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DiskCleaner.Elevated", "src\DiskCleaner.Elevated\DiskCleaner.Elevated.csproj", "{75A75DE2-A380-438B-BA2C-C0213051A131}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,10 +36,15 @@ Global
 		{E34D6842-2F4B-4F97-B1E2-0CC99717832E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E34D6842-2F4B-4F97-B1E2-0CC99717832E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E34D6842-2F4B-4F97-B1E2-0CC99717832E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75A75DE2-A380-438B-BA2C-C0213051A131}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75A75DE2-A380-438B-BA2C-C0213051A131}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75A75DE2-A380-438B-BA2C-C0213051A131}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75A75DE2-A380-438B-BA2C-C0213051A131}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{D15CF5B2-A0E6-4FFE-8A35-E7FA510B3436} = {DAA05866-9033-4F47-9182-A288DC57D0E5}
 		{F12F24D5-3239-4B69-B626-69CFBB496869} = {DAA05866-9033-4F47-9182-A288DC57D0E5}
 		{E34D6842-2F4B-4F97-B1E2-0CC99717832E} = {FAC3EAC6-2C2D-4C09-B2CD-6ACDA8F46F32}
+		{75A75DE2-A380-438B-BA2C-C0213051A131} = {DAA05866-9033-4F47-9182-A288DC57D0E5}
 	EndGlobalSection
 EndGlobal

@@ -10,7 +10,12 @@ public enum CleanOutcome
     DirectDeleted,
     CommandOnlyCleaned,
     Partial,
-    Error
+    Error,
+    Uninstalled,
+    RegistryEntryDeleted,
+    RebootRequired,
+    AlreadyUninstalled,
+    ElevationDeclined
 }
 
 public sealed record CleanEntry(
