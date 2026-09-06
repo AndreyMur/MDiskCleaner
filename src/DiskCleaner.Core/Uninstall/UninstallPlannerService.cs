@@ -50,7 +50,7 @@ public sealed class UninstallPlannerService
                 continue;
             }
 
-            var recommended = item.IsOldVersion || item.NeedsReview || item.IsDuplicate;
+            var recommended = item.IsOldVersion || item.NeedsReview;
             if (!opts.IncludeAllApps && !recommended)
             {
                 continue;
@@ -63,11 +63,13 @@ public sealed class UninstallPlannerService
             }
 
             var effective = ResolveBundleFallback(app, command);
+            var hasInstallFolder = !string.IsNullOrWhiteSpace(app.InstallLocation) &&
+                                   opts.PathExists(app.InstallLocation);
 
             seeds.Add(new CleanupItem
             {
                 Key = $"app:{app.ScopeKey}:{app.ProductCode}",
-                Path = null,
+                Path = hasInstallFolder ? app.InstallLocation : null,
                 DisplayName = app.DisplayName,
                 GroupName = string.IsNullOrWhiteSpace(app.Publisher) ? "Без издателя" : app.Publisher,
                 Category = CleanupCategory.InstalledApp,
@@ -82,6 +84,9 @@ public sealed class UninstallPlannerService
                 AllowDirectDelete = false,
                 UninstallMode = true,
                 SizeBytes = app.EstimatedSizeBytes,
+                ReviewReason = item.NeedsReview
+                    ? $"Review manually: {BuildReviewReason(item)}"
+                    : null,
                 OwnerProcessNames = Array.Empty<string>()
             });
         }
@@ -193,6 +198,9 @@ public sealed class UninstallPlannerService
 
         return parts.Count == 0 ? "Установленное приложение." : string.Join(System.Environment.NewLine, parts);
     }
+
+    private static string BuildReviewReason(InstalledAppAnalysis item) =>
+        item.Note ?? "Запись помечена для ручной проверки.";
 
     private static string BuildWarning(InstalledAppAnalysis item, UninstallCommand command)
     {

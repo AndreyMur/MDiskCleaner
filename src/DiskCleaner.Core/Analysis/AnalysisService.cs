@@ -53,12 +53,22 @@ public sealed class AnalysisService
             if (measurement.TimedOut)
             {
                 timedOutBranches++;
+                if (leaf.UninstallMode)
+                {
+                    measured.Add(leaf);
+                }
+
                 continue;
             }
 
             if (!measurement.Exists)
             {
                 skippedNonexistent++;
+                if (leaf.UninstallMode)
+                {
+                    measured.Add(leaf);
+                }
+
                 continue;
             }
 
