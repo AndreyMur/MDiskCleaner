@@ -8,6 +8,7 @@ public enum CleanupCategory
     InstalledApp,
     SystemFile,
     Temp,
+    RecycleBin,
     UserData,
     Other
 }

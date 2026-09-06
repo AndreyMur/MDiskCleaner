@@ -12,26 +12,55 @@ public sealed class DeletionOutcome
 
     public IReadOnlyList<string> Errors { get; init; } = Array.Empty<string>();
 
-    public bool FullyDeleted => Errors.Count == 0;
+    public bool Denied { get; init; }
+
+    public bool FullyDeleted => Errors.Count == 0 && !Denied;
 }
 
+/// <summary>
+/// Исполнитель удаления с try/catch по элементам: заблокированные/недоступные файлы пропускаются
+/// (IOException/UnauthorizedAccessException) без прерывания прогона (FR-5.1, FR-5.9).
+/// Защищает deny-список (FR-5.6) и поддерживает Корзина-режим (FR-NFR) и очистку содержимого.
+/// </summary>
 public sealed class DirectoryDeleter
 {
     private const int MaxRecordedErrors = 100;
 
-    public Task<DeletionOutcome> DeleteAsync(CleanupItem item, CancellationToken cancellationToken = default)
+    private readonly IRecycleBin? _recycleBin;
+
+    public DirectoryDeleter(IRecycleBin? recycleBin = null)
+    {
+        _recycleBin = recycleBin;
+    }
+
+    public async Task<DeletionOutcome> DeleteAsync(CleanupItem item, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(item.Path))
         {
-            return Task.FromResult(new DeletionOutcome());
+            return new DeletionOutcome();
         }
 
-        return DeletePathAsync(item.Path, item.Target, cancellationToken);
+        if (DenyList.IsProtectedPath(item.Path))
+        {
+            return new DeletionOutcome { Denied = true, Errors = [DenyList.Describe(item.Path)] };
+        }
+
+        if (item.MoveToRecycleBin)
+        {
+            return await MoveToRecycleBinAsync(item.Path, cancellationToken);
+        }
+
+        return await DeletePathAsync(
+            item.Path,
+            item.Target,
+            item.DeleteContentsOnly,
+            cancellationToken);
     }
 
     public async Task<DeletionOutcome> DeletePathAsync(
         string path,
         CleanupTarget target,
+        bool deleteContentsOnly = false,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(path))
@@ -40,43 +69,113 @@ public sealed class DirectoryDeleter
         }
 
         var fullPath = Path.GetFullPath(path);
+
+        if (DenyList.IsProtectedPath(fullPath))
+        {
+            return new DeletionOutcome { Denied = true, Errors = [DenyList.Describe(fullPath)] };
+        }
+
         if (target == CleanupTarget.File)
         {
             return await DeleteFileAsync(fullPath, cancellationToken);
         }
 
-        return await DeleteDirectoryAsync(fullPath, cancellationToken);
+        return deleteContentsOnly
+            ? await ClearDirectoryContentsAsync(fullPath, cancellationToken)
+            : await DeleteDirectoryAsync(fullPath, cancellationToken);
+    }
+
+    private async Task<DeletionOutcome> MoveToRecycleBinAsync(string path, CancellationToken cancellationToken)
+    {
+        if (_recycleBin is null)
+        {
+            return new DeletionOutcome { Errors = ["Корзина-режим недоступен: не настроен сервис Корзины."] };
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _recycleBin.MoveToRecycleBin(fullPath);
+                return new DeletionOutcome { DeletedFiles = 0, FreedBytes = 0 };
+            }
+            catch (Exception ex)
+            {
+                return new DeletionOutcome { Errors = [$"{fullPath}: {ex.Message}"] };
+            }
+        }, cancellationToken);
     }
 
     private static async Task<DeletionOutcome> DeleteFileAsync(string path, CancellationToken cancellationToken)
     {
         var state = new DeletionState();
         await Task.Run(() => TryDeleteFile(path, state), cancellationToken);
-        return new DeletionOutcome
-        {
-            FreedBytes = state.FreedBytes,
-            DeletedFiles = state.DeletedFiles,
-            Errors = state.Errors
-        };
+        return ToOutcome(state);
     }
 
     private async Task<DeletionOutcome> DeleteDirectoryAsync(string root, CancellationToken cancellationToken)
     {
         var state = new DeletionState();
-        await DeleteTreeAsync(root, 0, state, cancellationToken);
+        await DeleteTreeAsync(root, 0, state, removeSelf: true, cancellationToken);
         TryRemoveEmptyDirectory(root, state);
-        return new DeletionOutcome
-        {
-            FreedBytes = state.FreedBytes,
-            DeletedFiles = state.DeletedFiles,
-            Errors = state.Errors
-        };
+        return ToOutcome(state);
     }
+
+    private async Task<DeletionOutcome> ClearDirectoryContentsAsync(string root, CancellationToken cancellationToken)
+    {
+        var state = new DeletionState();
+        List<NativeDirectory.Entry> entries;
+        try
+        {
+            entries = NativeDirectory.Enumerate(root);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            state.RecordError(root, ex.Message);
+            return ToOutcome(state);
+        }
+
+        foreach (var entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (entry.IsDirectory)
+            {
+                if (entry.IsReparsePoint)
+                {
+                    continue;
+                }
+
+                await DeleteTreeAsync(
+                    Path.Combine(root, entry.Name),
+                    0,
+                    state,
+                    removeSelf: true,
+                    cancellationToken);
+            }
+            else
+            {
+                await Task.Run(
+                    () => TryDeleteFile(Path.Combine(root, entry.Name), state),
+                    cancellationToken);
+            }
+        }
+
+        return ToOutcome(state);
+    }
+
+    private static DeletionOutcome ToOutcome(DeletionState state) => new()
+    {
+        FreedBytes = state.FreedBytes,
+        DeletedFiles = state.DeletedFiles,
+        Errors = state.Errors
+    };
 
     private static async Task DeleteTreeAsync(
         string directoryPath,
         int depth,
         DeletionState state,
+        bool removeSelf,
         CancellationToken cancellationToken)
     {
         List<NativeDirectory.Entry> entries;
@@ -129,7 +228,7 @@ public sealed class DirectoryDeleter
                 foreach (var subDirectory in subDirectories)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await DeleteTreeAsync(subDirectory, depth + 1, state, cancellationToken);
+                    await DeleteTreeAsync(subDirectory, depth + 1, state, removeSelf: true, cancellationToken);
                     TryRemoveEmptyDirectory(subDirectory, state);
                 }
             }
@@ -140,13 +239,16 @@ public sealed class DirectoryDeleter
                     new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = 8 },
                     async (subDirectory, token) =>
                     {
-                        await DeleteTreeAsync(subDirectory, depth + 1, state, token);
+                        await DeleteTreeAsync(subDirectory, depth + 1, state, removeSelf: true, token);
                         TryRemoveEmptyDirectory(subDirectory, state);
                     });
             }
         }
 
-        TryRemoveEmptyDirectory(directoryPath, state);
+        if (removeSelf)
+        {
+            TryRemoveEmptyDirectory(directoryPath, state);
+        }
     }
 
     private static void TryDeleteFile(string path, DeletionState state)

@@ -36,5 +36,7 @@ public sealed class PlanRowViewModel
 
     public string AdminText => Item.RequiresAdmin ? "да" : "—";
 
+    public string RecycleText => Item.MoveToRecycleBin ? "Корзина" : "—";
+
     public string RegistryText => Item.RegistryDeletePath is null ? string.Empty : "запись реестра";
 }

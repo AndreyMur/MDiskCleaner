@@ -7,7 +7,8 @@ public enum ElevatedStepKind
 {
     DeletePath,
     RunProcess,
-    DeleteRegistryKey
+    DeleteRegistryKey,
+    ServiceCleanDirectory
 }
 
 public sealed class ElevatedScenario
@@ -25,6 +26,8 @@ public sealed class ElevatedStep
 
     public CleanupTarget? Target { get; init; }
 
+    public bool DeleteContentsOnly { get; init; }
+
     public string? FileName { get; init; }
 
     public string? Arguments { get; init; }
@@ -40,6 +43,9 @@ public sealed class ElevatedStep
     public RegistryHiveKind? RegistryHive { get; init; }
 
     public string? RegistrySubKeyPath { get; init; }
+
+    /// <summary>Имя службы для шага ServiceCleanDirectory (например, wuauserv).</summary>
+    public string? ServiceName { get; init; }
 }
 
 public enum ExitCodePolicy

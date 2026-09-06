@@ -1,8 +1,11 @@
 using DiskCleaner.Core.Caches;
+using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Elevated;
 using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Processes;
 using DiskCleaner.Core.Uninstall;
+using Serilog;
 
 namespace DiskCleaner.Core.Cleaning;
 
@@ -13,19 +16,25 @@ public sealed class PlanExecutor
     private readonly ElevatedScenarioBuilder _scenarioBuilder;
     private readonly ICommandRunner _commandRunner;
     private readonly LocalRegistryCleaner _registryCleaner;
+    private readonly IProcessInspector _processInspector;
+    private readonly InUseDetector _inUseDetector;
 
     public PlanExecutor(
         CacheCleanerService? localCleaner = null,
         IElevatedRunner? elevatedRunner = null,
         ElevatedScenarioBuilder? scenarioBuilder = null,
         ICommandRunner? commandRunner = null,
-        LocalRegistryCleaner? registryCleaner = null)
+        LocalRegistryCleaner? registryCleaner = null,
+        IProcessInspector? processInspector = null,
+        InUseDetector? inUseDetector = null)
     {
         _localCleaner = localCleaner ?? new CacheCleanerService();
         _elevatedRunner = elevatedRunner ?? new ElevatedProcessLauncher();
         _scenarioBuilder = scenarioBuilder ?? new ElevatedScenarioBuilder();
         _commandRunner = commandRunner ?? new ProcessCommandRunner();
         _registryCleaner = registryCleaner ?? new LocalRegistryCleaner();
+        _processInspector = processInspector ?? new ProcessInspector();
+        _inUseDetector = inUseDetector ?? new InUseDetector();
     }
 
     public async Task<CleanReport> CleanAsync(
@@ -42,35 +51,68 @@ public sealed class PlanExecutor
 
         if (cleanOptions.DryRun)
         {
-            return CreateDryRunReport(leaves, startedAt);
+            var dryReport = CreateDryRunReport(leaves, startedAt);
+            AuditReport(dryReport);
+            return dryReport;
         }
+
+        // Предварительная проверка занятости перед удалением (FR-5.7): один снапшот процессов на план.
+        var runningProcesses = _processInspector.GetRunningProcesses();
+        _inUseDetector.MarkInUse(leaves, runningProcesses);
+
+        var inUseLeaves = leaves.Where(l => l.InUse).ToList();
+        var availableLeaves = leaves
+            .Where(l => !l.InUse)
+            .Where(l => !(l.Category == CleanupCategory.UserData && !l.MoveToRecycleBin))
+            .ToList();
+        var blockedUserDataLeaves = leaves
+            .Where(l => l.Category == CleanupCategory.UserData && !l.MoveToRecycleBin)
+            .ToList();
 
         var progressState = new ProgressState(leaves.Count, progress);
 
-        var elevatedLeaves = leaves.Where(RequiresElevation).ToList();
-        var registryLeaves = leaves
+        var entries = new List<CleanEntry>(leaves.Count);
+
+        foreach (var inUseLeaf in inUseLeaves)
+        {
+            entries.Add(new CleanEntry(
+                inUseLeaf,
+                CleanOutcome.InUseSkipped,
+                0,
+                "Используется запущенным процессом — пропущено, план не прерван"));
+        }
+
+        foreach (var userDataLeaf in blockedUserDataLeaves)
+        {
+            entries.Add(new CleanEntry(
+                userDataLeaf,
+                CleanOutcome.Denied,
+                0,
+                "Корзина-режим: пользовательские данные не удаляются безвозвратно — только в Корзину по явному выбору."));
+        }
+
+        var elevatedLeaves = availableLeaves.Where(RequiresElevation).ToList();
+        var registryLeaves = availableLeaves
             .Where(l => l.RegistryDeletePath is not null && !l.RequiresAdmin)
             .ToList();
-        var localUninstallLeaves = leaves
+        var localUninstallLeaves = availableLeaves
             .Where(l => l.UninstallMode && !l.RequiresAdmin)
             .ToList();
-        var cacheLeaves = leaves
+        var localLeaves = availableLeaves
             .Where(l => !RequiresElevation(l) &&
                         l.RegistryDeletePath is null &&
                         !l.UninstallMode)
             .ToList();
 
-        var entries = new List<CleanEntry>(leaves.Count);
-
-        if (cacheLeaves.Count > 0)
+        if (localLeaves.Count > 0)
         {
             var report = await _localCleaner.CleanAsync(
-                cacheLeaves,
+                localLeaves,
                 cleanOptions,
                 null,
                 cancellationToken);
             entries.AddRange(report.Entries);
-            progressState.AddCompleted(cacheLeaves.Count, report.TotalFreedBytes, "Локальная очистка");
+            progressState.AddCompleted(localLeaves.Count, report.TotalFreedBytes, "Локальная очистка");
         }
 
         foreach (var leaf in registryLeaves)
@@ -97,12 +139,14 @@ public sealed class PlanExecutor
                 "Системные шаги");
         }
 
-        return new CleanReport
+        var reportResult = new CleanReport
         {
             Entries = entries,
             DryRun = false,
             Elapsed = DateTime.UtcNow - startedAt
         };
+        AuditReport(reportResult);
+        return reportResult;
     }
 
     private async Task<IReadOnlyList<CleanEntry>> RunElevatedBatchAsync(
@@ -180,8 +224,8 @@ public sealed class PlanExecutor
             .Select(leaf => new CleanEntry(
                 leaf,
                 CleanOutcome.DryRun,
-                leaf.EffectiveSizeBytes,
-                leaf.Warning is null ? "Будет очищено" : $"Будет очищено. {leaf.Warning}"))
+                leaf.InUse || leaf.MoveToRecycleBin ? 0 : leaf.EffectiveSizeBytes,
+                NoteForDryRun(leaf)))
             .ToList();
 
         return new CleanReport
@@ -190,6 +234,63 @@ public sealed class PlanExecutor
             DryRun = true,
             Elapsed = DateTime.UtcNow - startedAt
         };
+    }
+
+    private static string NoteForDryRun(CleanupItem leaf)
+    {
+        if (leaf.InUse)
+        {
+            return "Будет пропущено (объект используется процессом)";
+        }
+
+        if (leaf.MoveToRecycleBin)
+        {
+            return "Будет перемещено в Корзину (не удаляется безвозвратно)";
+        }
+
+        return leaf.Warning is null ? "Будет очищено" : $"Будет очищено. {leaf.Warning}";
+    }
+
+    private static void AuditReport(CleanReport report)
+    {
+        foreach (var entry in report.Entries)
+        {
+            var item = entry.Item;
+            Log.Information(
+                "Clean action: time={Time:yyyy-MM-dd HH:mm:ss} object={Object} sizeBytes={Size} op={Operation} result={Result} freedBytes={Freed} note={Note}",
+                DateTime.Now,
+                item.Path ?? item.DisplayName,
+                item.EffectiveSizeBytes,
+                OperationOf(item),
+                entry.Outcome,
+                entry.FreedBytes,
+                entry.Note);
+        }
+    }
+
+    private static string OperationOf(CleanupItem item)
+    {
+        if (item.MoveToRecycleBin)
+        {
+            return "move-to-recycle-bin";
+        }
+
+        if (item.UninstallMode)
+        {
+            return "uninstall";
+        }
+
+        if (item.RegistryDeletePath is not null)
+        {
+            return "delete-registry";
+        }
+
+        if (!string.IsNullOrEmpty(item.CleanCommandFile))
+        {
+            return "command";
+        }
+
+        return "delete-path";
     }
 
     private static string Truncate(string value, int maxLength) =>
