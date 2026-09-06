@@ -1,0 +1,12 @@
+﻿<Window x:Class="DiskCleaner.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DiskCleaner — анализ диска и очистка кэшей"
+        Height="640" Width="1000"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="DiskCleaner"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="32" FontWeight="SemiBold" />
+    </Grid>
+</Window>
