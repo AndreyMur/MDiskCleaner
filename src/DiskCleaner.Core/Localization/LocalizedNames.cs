@@ -23,4 +23,12 @@ public static class LocalizedNames
         CleanupRisk.Medium => "Средний",
         _ => "Высокий"
     };
+
+    /// <summary>Локализованное действие по умолчанию для таблицы плана (FR-1.11).</summary>
+    public static string DefaultAction(CleanupDefaultAction action) => action switch
+    {
+        CleanupDefaultAction.Clean => "Очистить",
+        CleanupDefaultAction.Ask => "Спросить",
+        _ => "Не трогать"
+    };
 }
