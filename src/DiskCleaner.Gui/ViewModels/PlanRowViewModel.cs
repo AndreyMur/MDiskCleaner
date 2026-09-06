@@ -31,4 +31,10 @@ public sealed class PlanRowViewModel
     public string Path => Item.Path ?? "(команда без пути)";
 
     public bool IsInUse => Item.InUse;
+
+    public bool RequiresAdmin => Item.RequiresAdmin;
+
+    public string AdminText => Item.RequiresAdmin ? "да" : "—";
+
+    public string RegistryText => Item.RegistryDeletePath is null ? string.Empty : "запись реестра";
 }

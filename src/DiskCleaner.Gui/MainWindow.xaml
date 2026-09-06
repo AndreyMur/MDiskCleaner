@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:converters="clr-namespace:DiskCleaner.Gui.Converters"
         xmlns:viewModels="clr-namespace:DiskCleaner.Gui.ViewModels"
-        Title="DiskCleaner — анализ диска и очистка кэшей"
+        Title="DiskCleaner — анализ, остатки и деинсталляция"
         Height="760" Width="1240"
         MinHeight="560" MinWidth="900"
         WindowStartupLocation="CenterScreen">
@@ -16,6 +16,7 @@
         <converters:BoolToInUseTextConverter x:Key="InUseTextConverter" />
         <converters:BoolToInUseBrushConverter x:Key="InUseBrushConverter" />
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:YesNoTextConverter x:Key="YesNoTextConverter" />
 
         <Style x:Key="ToolbarButton" TargetType="Button">
             <Setter Property="Height" Value="30" />
@@ -179,6 +180,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Категория:" Foreground="#666666" />
@@ -191,22 +193,26 @@
                                            Text="{Binding SelectedNode.Item.Risk, Converter={StaticResource RiskTextConverter}}"
                                            Foreground="{Binding SelectedNode.Item.Risk, Converter={StaticResource RiskBrushConverter}}" />
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Размер:" Foreground="#666666" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Требует админ:" Foreground="#666666" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" Margin="6,0,0,2"
+                                           Text="{Binding SelectedNode.Item.RequiresAdmin, Converter={StaticResource YesNoTextConverter}}" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Размер:" Foreground="#666666" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.EffectiveSizeBytes, Converter={StaticResource SizeTextConverter}}" />
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Команда:" Foreground="#666666" />
-                                <TextBlock Grid.Row="3" Grid.Column="1" Margin="6,0,0,2"
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Команда:" Foreground="#666666" />
+                                <TextBlock Grid.Row="4" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.CleanCommand}"
                                            TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Путь:" Foreground="#666666" />
-                                <TextBlock Grid.Row="4" Grid.Column="1" Margin="6,0,0,2"
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Путь:" Foreground="#666666" />
+                                <TextBlock Grid.Row="5" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.Path}"
                                            TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Примечание:" Foreground="#666666" />
-                                <TextBlock Grid.Row="5" Grid.Column="1" Margin="6,0,0,2"
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Примечание:" Foreground="#666666" />
+                                <TextBlock Grid.Row="6" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.Warning}"
                                            Foreground="#B46A00"
                                            TextWrapping="Wrap" />
@@ -229,10 +235,12 @@
                           RowHeaderWidth="0"
                           SelectionMode="Single">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Объект" Width="2*" Binding="{Binding Name}" />
-                        <DataGridTextColumn Header="Риск" Width="70" Binding="{Binding Risk}" />
-                        <DataGridTextColumn Header="Размер" Width="90" Binding="{Binding Size}" />
-                        <DataGridTextColumn Header="Путь" Width="2.6*" Binding="{Binding Path}" />
+                        <DataGridTextColumn Header="Объект" Width="1.6*" Binding="{Binding Name}" />
+                        <DataGridTextColumn Header="Риск" Width="64" Binding="{Binding Risk}" />
+                        <DataGridTextColumn Header="Размер" Width="84" Binding="{Binding Size}" />
+                        <DataGridTextColumn Header="Админ" Width="52" Binding="{Binding AdminText}" />
+                        <DataGridTextColumn Header="Команда" Width="1.8*" Binding="{Binding Command}" />
+                        <DataGridTextColumn Header="Путь" Width="2*" Binding="{Binding Path}" />
                     </DataGrid.Columns>
                 </DataGrid>
             </DockPanel>

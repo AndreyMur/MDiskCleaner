@@ -19,15 +19,28 @@ public sealed class DirectoryDeleter
 {
     private const int MaxRecordedErrors = 100;
 
-    public async Task<DeletionOutcome> DeleteAsync(CleanupItem item, CancellationToken cancellationToken = default)
+    public Task<DeletionOutcome> DeleteAsync(CleanupItem item, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(item.Path))
+        {
+            return Task.FromResult(new DeletionOutcome());
+        }
+
+        return DeletePathAsync(item.Path, item.Target, cancellationToken);
+    }
+
+    public async Task<DeletionOutcome> DeletePathAsync(
+        string path,
+        CleanupTarget target,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(path))
         {
             return new DeletionOutcome();
         }
 
-        var fullPath = Path.GetFullPath(item.Path);
-        if (item.Target == CleanupTarget.File)
+        var fullPath = Path.GetFullPath(path);
+        if (target == CleanupTarget.File)
         {
             return await DeleteFileAsync(fullPath, cancellationToken);
         }

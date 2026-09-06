@@ -87,6 +87,11 @@ public static class CleanReportFormatter
         CleanOutcome.DirectDeleted => "удалено",
         CleanOutcome.CommandOnlyCleaned => "команда выполнена",
         CleanOutcome.Partial => "частично",
+        CleanOutcome.Uninstalled => "деинсталлировано",
+        CleanOutcome.RegistryEntryDeleted => "запись реестра удалена",
+        CleanOutcome.RebootRequired => "требуется перезагрузка",
+        CleanOutcome.AlreadyUninstalled => "уже не установлено",
+        CleanOutcome.ElevationDeclined => "отменено пользователем (UAC)",
         _ => "ошибка"
     };
 
