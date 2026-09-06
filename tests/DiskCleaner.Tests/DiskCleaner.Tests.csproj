@@ -24,6 +24,8 @@
     <ProjectReference Include="..\..\src\DiskCleaner.Core\DiskCleaner.Core.csproj" />
     <ProjectReference Include="..\..\src\DiskCleaner.Elevated\DiskCleaner.Elevated.csproj"
                       ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\DiskCleaner.Cli\DiskCleaner.Cli.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <Target Name="CopyElevatedExeForTests" AfterTargets="Build">
@@ -32,6 +34,15 @@
     </ItemGroup>
     <Copy SourceFiles="@(_ElevatedOutput)"
           DestinationFolder="$(OutDir)Elevated\%(RecursiveDir)"
+          Condition="Exists('%(FullPath)')" />
+  </Target>
+
+  <Target Name="CopyCliExeForTests" AfterTargets="Build">
+    <ItemGroup>
+      <_CliOutput Include="$(MSBuildProjectDirectory)\..\..\src\DiskCleaner.Cli\bin\$(Configuration)\net8.0\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_CliOutput)"
+          DestinationFolder="$(OutDir)Cli\%(RecursiveDir)"
           Condition="Exists('%(FullPath)')" />
   </Target>
 
