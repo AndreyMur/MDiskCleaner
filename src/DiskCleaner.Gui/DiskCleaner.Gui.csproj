@@ -18,6 +18,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DiskCleaner.Core\DiskCleaner.Core.csproj" />
+    <ProjectReference Include="..\DiskCleaner.Elevated\DiskCleaner.Elevated.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <Target Name="CopyElevatedExe" AfterTargets="Build">
+    <ItemGroup>
+      <_ElevatedOutput Include="$(MSBuildProjectDirectory)\..\DiskCleaner.Elevated\bin\$(Configuration)\net8.0\**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ElevatedOutput)"
+          DestinationFolder="$(OutDir)Elevated\%(RecursiveDir)"
+          Condition="Exists('%(FullPath)')" />
+  </Target>
 
 </Project>

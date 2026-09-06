@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DiskCleaner.Core.Analysis;
 using DiskCleaner.Core.Caches;
+using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
@@ -13,9 +14,9 @@ namespace DiskCleaner.Gui.ViewModels;
 
 public sealed partial class MainViewModel : ObservableObject
 {
-    private readonly CacheCatalogService _catalog = new();
+    private readonly ScanSeedsProvider _seeds = new(includeAllApps: true);
     private readonly AnalysisService _analysis = new();
-    private readonly CacheCleanerService _cleaner = new();
+    private readonly PlanExecutor _plan = new();
     private CancellationTokenSource? _operationCts;
 
     public ObservableCollection<TreeItemViewModel> RootNodes { get; } = new();
@@ -79,7 +80,7 @@ public sealed partial class MainViewModel : ObservableObject
                     text.Report($"каталогов: {p.DirectoriesCompleted} · {CleanReportFormatter.FormatBytes(p.BytesMeasured)}{current}");
                 });
 
-                var seeds = await _catalog.BuildSeedsAsync(ct);
+                var seeds = await _seeds.BuildSeedsAsync(ct);
                 var result = await _analysis.AnalyzeAsync(seeds, scanProgress, ct);
                 await Application.Current.Dispatcher.InvokeAsync(() => ApplyAnalysis(result));
             });
@@ -110,7 +111,7 @@ public sealed partial class MainViewModel : ObservableObject
                     text.Report($"{p.CompletedItems}/{p.TotalItems} · {p.CurrentName} · освобождено {CleanReportFormatter.FormatBytes(p.BytesCleaned)}"));
 
                 var options = new CleanOptions { DryRun = dryRun };
-                var report = await _cleaner.CleanAsync(
+                var report = await _plan.CleanAsync(
                     selectedLeaves.Select(l => l.Item),
                     options,
                     cleanProgress,
@@ -173,7 +174,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task RefreshAfterCleanAsync(CancellationToken ct)
     {
-        var seeds = await _catalog.BuildSeedsAsync(ct);
+        var seeds = await _seeds.BuildSeedsAsync(ct);
         var result = await _analysis.AnalyzeAsync(seeds, null, ct);
         await Application.Current.Dispatcher.InvokeAsync(() => ApplyAnalysis(result));
     }
@@ -189,7 +190,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         var summary = result.Items.Count == 0
-            ? "Кэши не найдены."
+            ? "Объекты для очистки не найдены."
             : $"Найдено объектов: {result.Items.Count} ({CleanReportFormatter.FormatBytes(result.TotalBytes)}), используется: {result.InUseItems}, пропущено (нет пути): {result.SkippedNonexistent}";
         StatusText = $"Анализ за {result.Elapsed.TotalSeconds:F1} с. " + summary;
 

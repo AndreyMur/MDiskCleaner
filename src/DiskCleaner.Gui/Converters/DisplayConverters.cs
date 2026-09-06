@@ -87,6 +87,15 @@ public sealed class BoolToVisibilityConverter : IValueConverter
         Binding.DoNothing;
 }
 
+public sealed class YesNoTextConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is true ? "да" : "нет";
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}
+
 public sealed class ItemToSizeTextConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
