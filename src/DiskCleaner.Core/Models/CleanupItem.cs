@@ -39,6 +39,13 @@ public sealed class CleanupItem
 
     public bool AllowDirectDelete { get; init; } = true;
 
+    /// <summary>
+    /// «Осиротевший» кэш (FR-2.4): путь по умолчанию существует и содержит данные,
+    /// но менеджер теперь использует другой путь (конфиг/команда вернули иной каталог).
+    /// Чистится только напрямую — штатная команда менеджера его не знает.
+    /// </summary>
+    public bool IsOrphan { get; init; }
+
     /// <summary>Означает «удалить запись реестра» (осиротевшая ветка Uninstall).</summary>
     public string? RegistryDeletePath { get; init; }
 
