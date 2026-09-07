@@ -30,6 +30,12 @@ public sealed class LeftoverCandidate
 
     public bool RequiresAdmin { get; init; }
 
+    /// <summary>
+    /// Обязательное подтверждение пользователя перед удалением (FR-3.4, §5): проставляется
+    /// для «опасных» объектов — осиротевших папок Program Files/ProgramData и Windows.old.
+    /// </summary>
+    public bool RequiresConfirmation { get; init; }
+
     public CleanupRisk Risk { get; init; } = CleanupRisk.Medium;
 
     public CleanupCategory Category { get; init; } = CleanupCategory.Leftover;
@@ -41,6 +47,12 @@ public sealed class LeftoverCandidate
 
     /// <summary>Дата последнего изменения каталога (FR-3.2).</summary>
     public DateTime? LastWriteTimeUtc { get; init; }
+
+    /// <summary>
+    /// Рекомендуемый способ удаления (например, для Windows.old: Storage Sense /
+    /// <c>cleanmgr</c> / DISM, FR-3.5). Пусто для обычных остатков, удаляемых напрямую.
+    /// </summary>
+    public string? RecommendedRemovalMethod { get; init; }
 
     public string? RegistryDeletePath { get; init; }
 }
