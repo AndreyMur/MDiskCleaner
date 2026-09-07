@@ -60,6 +60,10 @@
                             Content="Выполнить план"
                             Command="{Binding CleanCommand}" />
                     <Button Style="{StaticResource ToolbarButton}"
+                            Content="Очистка кэшей"
+                            Command="{Binding OpenCacheCleanCommand}"
+                            ToolTip="Открыть экран «Очистка кэшей»: группы кэшей по менеджеру/приложению, отметка чекбоксами, dry-run-предпросмотр, выполнение с прогрессом и отчёт (FR-2.1–2.12)." />
+                    <Button Style="{StaticResource ToolbarButton}"
                             Content="Отмена"
                             Command="{Binding CancelCommand}" />
                     <Button Style="{StaticResource ToolbarButton}"

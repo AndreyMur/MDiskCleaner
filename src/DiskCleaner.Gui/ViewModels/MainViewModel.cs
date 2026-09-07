@@ -34,6 +34,9 @@ public sealed partial class MainViewModel : ObservableObject
     private AnalysisRunOptions _lastOptions = new();
     private AnalysisResult? _lastAnalysis;
 
+    /// <summary>Корень последнего полного скана диска (для экрана «Очистка кэшей», FR-2.3); <c>null</c> — профильный режим.</summary>
+    private string? _lastScanDiskRoot;
+
     public MainViewModel(
         IAnalysisCoordinator? coordinator = null,
         PlanSnapshotService? snapshotService = null,
@@ -171,8 +174,40 @@ public sealed partial class MainViewModel : ObservableObject
 
                 var result = await _coordinator.RunAsync(options, scanProgress, ct);
                 _lastOptions = options;
+                _lastScanDiskRoot = NormalizeScanRoot(options.DiskRootPath);
                 OnAnalysisReady(result);
             });
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStartOperation))]
+    private void OpenCacheClean()
+    {
+        var owner = Application.Current.MainWindow;
+        var window = new CacheCleanWindow(new CacheCleanViewModel(scannedDiskRoot: _lastScanDiskRoot))
+        {
+            Owner = owner
+        };
+
+        window.ShowDialog();
+    }
+
+    /// <summary>Корень диска для контекста «вне сканируемого диска» на экране очистки кэшей (FR-2.3).</summary>
+    private static string? NormalizeScanRoot(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return null;
+        }
+
+        try
+        {
+            var full = Path.GetFullPath(root);
+            return Path.GetPathRoot(full);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanStartOperation))]
