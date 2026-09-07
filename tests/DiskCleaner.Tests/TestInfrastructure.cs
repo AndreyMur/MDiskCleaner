@@ -195,6 +195,18 @@ public sealed class FakeProcessInspector : IProcessInspector
     public IReadOnlyList<RunningProcessInfo> GetRunningProcesses() => _processes;
 }
 
+public sealed class FakeServiceInspector : IServiceInspector
+{
+    private readonly IReadOnlyList<RegisteredServiceInfo> _services;
+
+    public FakeServiceInspector(params RegisteredServiceInfo[] services)
+    {
+        _services = services;
+    }
+
+    public IReadOnlyList<RegisteredServiceInfo> GetServices() => _services;
+}
+
 public static class TestItems
 {
     public static CleanupItem Directory(string path, string? group = null, CleanupCategory category = CleanupCategory.Cache, CleanupRisk risk = CleanupRisk.Low)
