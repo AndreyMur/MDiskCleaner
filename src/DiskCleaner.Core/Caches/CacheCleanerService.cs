@@ -3,6 +3,7 @@ using DiskCleaner.Core.Analysis;
 using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Processes;
 using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
 
@@ -63,11 +64,18 @@ public sealed class CacheCleanerService
                     item,
                     CleanOutcome.InUseSkipped,
                     0,
-                    "Используется запущенным процессом — пропущено, план не прерван");
+                    InUseMessages.SkippedNote(item));
             }
             else
             {
-                entry = await CleanOneAsync(item, cleanOptions, cancellationToken);
+                entry = await CleanOneAsync(
+                    item,
+                    cleanOptions,
+                    totalFreed,
+                    completed,
+                    items.Count,
+                    progress,
+                    cancellationToken);
             }
 
             entries.Add(entry);
@@ -88,6 +96,10 @@ public sealed class CacheCleanerService
     private async Task<CleanEntry> CleanOneAsync(
         CleanupItem item,
         CleanOptions options,
+        long bytesBeforeItem,
+        int completedItems,
+        int totalItems,
+        IProgress<CleanProgress>? progress,
         CancellationToken cancellationToken)
     {
         if (item.MoveToRecycleBin)
@@ -103,10 +115,19 @@ public sealed class CacheCleanerService
             return await CleanCommandOnlyAsync(item, notes, cancellationToken);
         }
 
+        if (item.IsOrphan)
+        {
+            notes.Add("Осиротевший кэш прежней конфигурации: менеджер больше не использует этот путь — удаляется напрямую (FR-2.4)");
+        }
+
         var commandResult = (CommandResult?)null;
         var nativeRan = false;
 
-        if (!string.IsNullOrEmpty(item.CleanCommandFile) && options.AllowNativeCommands)
+        // Осиротевший кэш менеджер не знает — штатная команда не выполняется (FR-2.4):
+        // путь существует, но конфигурация менеджера указывает на другой каталог.
+        if (!item.IsOrphan &&
+            !string.IsNullOrEmpty(item.CleanCommandFile) &&
+            options.AllowNativeCommands)
         {
             commandResult = await _runner.RunAsync(new CommandDefinition
             {
@@ -148,10 +169,19 @@ public sealed class CacheCleanerService
                 notes.Add(NativeIneffectiveNote(commandResult, nativeFreed, startSize) + "; применено прямое удаление каталога");
             }
 
-            directDeletion = await _deleter.DeleteAsync(item, cancellationToken);
+            directDeletion = await _deleter.DeleteAsync(
+                item,
+                cancellationToken,
+                DeletionProgress(item, bytesBeforeItem, completedItems, totalItems, progress));
+
             foreach (var error in directDeletion.Errors)
             {
                 notes.Add(error);
+            }
+
+            if (directDeletion.SkippedFiles > 0)
+            {
+                notes.Insert(0, $"Прямое удаление: пропущено {FileCountText(directDeletion.SkippedFiles)} — заблокировано или нет доступа (журнал: файл и причина по каждому пропуску)");
             }
         }
         else if (exists && !item.AllowDirectDelete && nativeRan && nativeFreed < startSize * FallbackThresholdFraction)
@@ -172,6 +202,60 @@ public sealed class CacheCleanerService
         }
 
         return new CleanEntry(item, outcome, freed, notes.Count == 0 ? null : string.Join("; ", notes));
+    }
+
+    /// <summary>
+    /// Адаптер прогресса прямого удаления (NFR «показывать прогресс»): снимки из
+    /// <see cref="DirectoryDeleter"/> превращаются в события <see cref="CleanProgress"/>
+    /// с текущим объектом и детализацией (удалено/пропущено).
+    /// </summary>
+    private static IProgress<DirectoryDeletionProgress>? DeletionProgress(
+        CleanupItem item,
+        long bytesBeforeItem,
+        int completedItems,
+        int totalItems,
+        IProgress<CleanProgress>? progress)
+    {
+        if (progress is null)
+        {
+            return null;
+        }
+
+        return new Progress<DirectoryDeletionProgress>(deletion =>
+            progress.Report(new CleanProgress(
+                item.DisplayName,
+                completedItems,
+                totalItems,
+                bytesBeforeItem + Math.Max(0, deletion.DeletedBytes),
+                DeletionProgressText(deletion))));
+    }
+
+    private static string DeletionProgressText(DirectoryDeletionProgress deletion)
+    {
+        var freed = CleanReportFormatter.FormatBytes(deletion.DeletedBytes);
+        if (deletion.SkippedFiles == 0)
+        {
+            return $"Прямое удаление: удалено файлов {deletion.DeletedFiles} (~{freed})";
+        }
+
+        return $"Прямое удаление: удалено файлов {deletion.DeletedFiles} (~{freed}), пропущено {FileCountText(deletion.SkippedFiles)}";
+    }
+
+    private static string FileCountText(long count)
+    {
+        var lastTwo = count % 100;
+        var lastDigit = count % 10;
+        if (lastTwo is >= 11 and <= 14)
+        {
+            return $"{count} файлов";
+        }
+
+        return lastDigit switch
+        {
+            1 => $"{count} файл",
+            >= 2 and <= 4 => $"{count} файла",
+            _ => $"{count} файлов"
+        };
     }
 
     private async Task<CleanEntry> MoveToRecycleBinAsync(CleanupItem item, CancellationToken cancellationToken)
@@ -326,7 +410,7 @@ public sealed class CacheCleanerService
                 item,
                 CleanOutcome.DryRun,
                 0,
-                "Будет пропущено (объект используется процессом)");
+                $"Будет пропущено. {InUseMessages.SkippedNote(item)}");
         }
 
         if (item.MoveToRecycleBin)
@@ -338,11 +422,20 @@ public sealed class CacheCleanerService
                 "Будет перемещено в Корзину (не удаляется безвозвратно)");
         }
 
+        var note = item.IsOrphan
+            ? "Будет удалено напрямую (осиротевший кэш прежней конфигурации, FR-2.4)"
+            : "Будет очищено";
+
+        if (item.Warning is not null)
+        {
+            note += $". {item.Warning}";
+        }
+
         return new CleanEntry(
             item,
             CleanOutcome.DryRun,
             item.EffectiveSizeBytes,
-            item.Warning is null ? "Будет очищено" : $"Будет очищено. {item.Warning}");
+            note);
     }
 
     private async Task<long> MeasurePathAsync(string? path)
