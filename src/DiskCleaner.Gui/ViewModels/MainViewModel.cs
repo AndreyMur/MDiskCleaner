@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,29 +11,42 @@ using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
 using DiskCleaner.Core.Scheduling;
+using DiskCleaner.Gui.Services;
 
 namespace DiskCleaner.Gui.ViewModels;
 
 /// <summary>
 /// ViewModel главного экрана «Анализ/План очистки» (FR-1.1, FR-1.11). Тонкий слой поверх ядра:
 /// выбор источника анализа (полный скан диска или известные объекты профиля/реестра/системы),
-/// запуск скана в фоне с прогрессом и отменой, дерево категорий и таблица плана. Вся бизнес-логика —
-/// в <see cref="IAnalysisCoordinator"/> и сервисах ядра.
+/// запуск скана в фоне с прогрессом и отменой, дерево категорий и таблица плана. Дополнительно —
+/// экспорт плана в Markdown/JSON/CSV (FR-1.12) и раздел «Было/стало» со сравнением с предыдущим
+/// сканом (FR-1.13). Вся бизнес-логика — в <see cref="IAnalysisCoordinator"/>, <see cref="PlanExporter"/>
+/// и сервисах ядра.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IAnalysisCoordinator _coordinator;
     private readonly PlanExecutor _plan;
     private readonly SchedulerService _scheduler;
+    private readonly PlanSnapshotService _snapshots;
+    private readonly ISaveFileDialogService _saveDialog;
     private CancellationTokenSource? _operationCts;
     private AnalysisRunOptions _lastOptions = new();
+    private AnalysisResult? _lastAnalysis;
 
-    public MainViewModel(IAnalysisCoordinator? coordinator = null)
+    public MainViewModel(
+        IAnalysisCoordinator? coordinator = null,
+        PlanSnapshotService? snapshotService = null,
+        ISaveFileDialogService? saveFileDialog = null)
     {
         _coordinator = coordinator ?? new AnalysisCoordinator();
         _plan = new PlanExecutor();
         _scheduler = new SchedulerService();
+        _snapshots = snapshotService ?? new PlanSnapshotService();
+        _saveDialog = saveFileDialog ?? new WpfSaveFileDialogService();
         Sources = BuildSources();
+        ExportFormats = ExportFormatOption.All;
+        SelectedExportFormat = ExportFormats.FirstOrDefault(f => f.Format == PlanExportFormat.Markdown) ?? ExportFormats[0];
         SelectedSource = Sources.FirstOrDefault(s => s.IsDiskSource) ?? Sources.FirstOrDefault();
         RefreshFreeSpace();
         StatusText = "Готов к анализу. Выберите источник и нажмите «Анализ».";
@@ -41,13 +55,35 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Источники анализа: фиксированные диски + режим профиля/известных объектов.</summary>
     public IReadOnlyList<AnalysisSourceOption> Sources { get; }
 
+    /// <summary>Форматы экспорта плана (FR-1.12).</summary>
+    public IReadOnlyList<ExportFormatOption> ExportFormats { get; }
+
     public ObservableCollection<TreeItemViewModel> RootNodes { get; } = new();
 
     public ObservableCollection<PlanRowViewModel> PlanRows { get; } = new();
 
+    /// <summary>Строки раздела «Было/стало»: изменённые/добавленные/удалённые объекты (FR-1.13).</summary>
+    public ObservableCollection<ComparisonRowViewModel> ComparisonRows { get; } = new();
+
+    /// <summary>Выбранный формат экспорта плана (FR-1.12).</summary>
+    [ObservableProperty]
+    private ExportFormatOption? _selectedExportFormat;
+
+    /// <summary>
+    /// Сводка «было/стало» для раздела сравнения (FR-1.13): было N объектов · размер → стало
+    /// M объектов · размер и дельта (освобождено/выросло/без изменений).
+    /// </summary>
+    [ObservableProperty]
+    private string _comparisonSummary = string.Empty;
+
+    /// <summary>Есть ли сравнение с предыдущим сканом для показа раздела «Было/стало» (FR-1.13).</summary>
+    [ObservableProperty]
+    private bool _hasComparison;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CleanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyPropertyChangedFor(nameof(CanChangeSource))]
     [NotifyPropertyChangedFor(nameof(IsSystemDirectoriesToggleEnabled))]
@@ -135,7 +171,7 @@ public sealed partial class MainViewModel : ObservableObject
 
                 var result = await _coordinator.RunAsync(options, scanProgress, ct);
                 _lastOptions = options;
-                ApplyAnalysis(result);
+                OnAnalysisReady(result);
             });
     }
 
@@ -197,6 +233,47 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCancelOperation))]
     private void Cancel() => _operationCts?.Cancel();
 
+    private bool CanExport => _lastAnalysis is { Items.Count: > 0 } && !IsBusy;
+
+    /// <summary>
+    /// Экспорт плана текущего анализа в выбранном формате (Markdown/JSON/CSV) через диалог
+    /// сохранения (FR-1.12). Рендер и запись файла выполняет ядро (<see cref="PlanExporter"/>).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanExport))]
+    private async Task ExportAsync()
+    {
+        var analysis = _lastAnalysis;
+        var format = SelectedExportFormat;
+        if (analysis is null || format is null)
+        {
+            return;
+        }
+
+        var document = PlanDocumentBuilder.FromScan(analysis);
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        var path = _saveDialog.Show(
+            "Экспорт плана очистки",
+            $"diskcleaner-plan-{stamp}{format.FileExtension}",
+            format.FileExtension,
+            format.Filter);
+
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.Run(() => PlanExporter.WriteFile(path, document, format.Format));
+            StatusText = "План экспортирован: " + path;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusText = "Экспорт не выполнен: " + ex.Message;
+            Serilog.Log.Error(ex, "Plan export to '{Path}' failed", path);
+        }
+    }
+
     private async Task RunOperationAsync(string operation, Func<CancellationToken, IProgress<string>, Task> work)
     {
         if (IsBusy)
@@ -242,7 +319,101 @@ public sealed partial class MainViewModel : ObservableObject
     private async Task RefreshAfterCleanAsync(CancellationToken ct)
     {
         var result = await _coordinator.RunAsync(_lastOptions, null, ct);
+        OnAnalysisReady(result);
+    }
+
+    /// <summary>
+    /// Результат очередного анализа: сохраняется как текущий план (для экспорта), фиксируется
+    /// снапшот скана и строится сравнение «было/стало» с предыдущим сканом (FR-1.13), затем
+    /// результат отображается на экране.
+    /// </summary>
+    private void OnAnalysisReady(AnalysisResult result)
+    {
+        _lastAnalysis = result;
+        UpdateComparison(CaptureComparison(result));
         ApplyAnalysis(result);
+    }
+
+    private PlanComparison? CaptureComparison(AnalysisResult result)
+    {
+        try
+        {
+            return _snapshots.Capture(result);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Serilog.Log.Warning(ex, "Plan snapshot capture failed; was/is comparison unavailable");
+            return null;
+        }
+    }
+
+    private void UpdateComparison(PlanComparison? comparison)
+    {
+        ComparisonRows.Clear();
+
+        if (comparison is null)
+        {
+            HasComparison = false;
+            ComparisonSummary = string.Empty;
+            return;
+        }
+
+        HasComparison = true;
+        ComparisonSummary = FormatComparisonSummary(comparison);
+
+        foreach (var row in comparison.Objects.Where(o => o.ChangeKind != PlanObjectChangeKind.Unchanged))
+        {
+            ComparisonRows.Add(new ComparisonRowViewModel(row));
+        }
+    }
+
+    private static string FormatComparisonSummary(PlanComparison comparison)
+    {
+        var summary = $"Было: {comparison.PreviousTotalItems} {PluralObjects(comparison.PreviousTotalItems)} · " +
+                      $"{CleanReportFormatter.FormatBytes(comparison.PreviousTotalBytes)} → " +
+                      $"Стало: {comparison.CurrentTotalItems} {PluralObjects(comparison.CurrentTotalItems)} · " +
+                      $"{CleanReportFormatter.FormatBytes(comparison.CurrentTotalBytes)}";
+
+        var deltaBytes = comparison.DeltaBytes;
+        var deltaItems = comparison.DeltaItems;
+        string? part = null;
+        if (deltaBytes < 0)
+        {
+            part = $"Освобождено ≈ {CleanReportFormatter.FormatBytes(-deltaBytes)}";
+        }
+        else if (deltaBytes > 0)
+        {
+            part = $"Размер вырос на {CleanReportFormatter.FormatBytes(deltaBytes)}";
+        }
+        else if (deltaItems != 0)
+        {
+            part = "Размер не изменился";
+        }
+
+        if (deltaItems != 0)
+        {
+            part = (part is null ? string.Empty : part + ", ") +
+                   $"объектов {(deltaItems < 0 ? "меньше на " : "больше на ")}{Math.Abs(deltaItems)}";
+        }
+
+        return part is null ? summary + " (без изменений)" : summary + ". " + part + ".";
+    }
+
+    private static string PluralObjects(int count)
+    {
+        var mod10 = count % 10;
+        var mod100 = count % 100;
+        if (mod10 == 1 && mod100 != 11)
+        {
+            return "объект";
+        }
+
+        if (mod10 is >= 2 and <= 4 && mod100 is not (>= 12 and <= 14))
+        {
+            return "объекта";
+        }
+
+        return "объектов";
     }
 
     internal void ApplyAnalysis(AnalysisResult result)

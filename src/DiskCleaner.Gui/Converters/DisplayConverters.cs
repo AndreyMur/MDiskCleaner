@@ -104,3 +104,20 @@ public sealed class ItemToSizeTextConverter : IValueConverter
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;
 }
+
+public sealed class ChangeKindToBrushConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is not PlanObjectChangeKind kind
+            ? Brushes.Gray
+            : kind switch
+            {
+                PlanObjectChangeKind.Added => new SolidColorBrush(Color.FromRgb(0xB4, 0x6A, 0x00)),
+                PlanObjectChangeKind.Removed => new SolidColorBrush(Color.FromRgb(0x10, 0x7C, 0x10)),
+                PlanObjectChangeKind.Changed => new SolidColorBrush(Color.FromRgb(0x1F, 0x4E, 0x79)),
+                _ => Brushes.Gray
+            };
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        Binding.DoNothing;
+}

@@ -1,6 +1,10 @@
+using System.IO;
 using DiskCleaner.Core.Analysis;
 using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
+using DiskCleaner.Gui.Services;
+using DiskCleaner.Gui.ViewModels;
 
 namespace DiskCleaner.Gui.Tests;
 
@@ -21,6 +25,26 @@ internal sealed class FakeAnalysisCoordinator : IAnalysisCoordinator
         Calls++;
         LastOptions = options;
         return Task.FromResult(Handler?.Invoke(options) ?? new AnalysisResult());
+    }
+}
+
+/// <summary>
+/// Создаёт MainViewModel с изолированным хранилищем снапшотов (временный каталог): тесты не пишут
+/// в реальный scancache и не влияют друг на друга (FR-1.13).
+/// </summary>
+internal static class MainViewModelFactory
+{
+    public static MainViewModel Create(
+        FakeAnalysisCoordinator fake,
+        ISaveFileDialogService? saveFileDialog = null)
+    {
+        var cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            "DiskCleaner.Gui.Tests",
+            Guid.NewGuid().ToString("N"),
+            "scancache");
+        var snapshots = new PlanSnapshotService(new PlanSnapshotStore(cacheDir));
+        return new MainViewModel(fake, snapshots, saveFileDialog);
     }
 }
 
