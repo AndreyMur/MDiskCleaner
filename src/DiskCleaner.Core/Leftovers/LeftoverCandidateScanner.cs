@@ -1,49 +1,62 @@
-using DiskCleaner.Core.Abstractions;
-using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Processes;
 using DiskCleaner.Core.Uninstall;
 
 namespace DiskCleaner.Core.Leftovers;
 
 /// <summary>
-/// Скан «папка → кандидат-остаток» (модуль 03, Tracer Bullet):
-/// перебираются только верхние уровни ключевых каталогов (без рекурсивного обхода,
-/// NFR ≤ 60 с), каждый каталог сопоставляется с белым списком реестра Uninstall
-/// (FR-3.1), а несопоставленные и каталоги-апдейтеры становятся кандидатами
-/// <see cref="LeftoverCandidate"/> с размером и датой изменения (FR-3.2).
+/// Скан «папка → кандидат-остаток» (модуль 03): перебираются только верхние уровни
+/// ключевых каталогов (без рекурсивного обхода, NFR ≤ 60 с), а каждый каталог
+/// классифицируется движком эвристик <see cref="LeftoverRuleEngine"/> (маска апдейтеров,
+/// справочник брендов, «пустые/почти пустые» каталоги, пороги > 1 ГБ, проверка процессов)
+/// в группы с автоматическим основанием — почему каталог остаток (FR-3.1–3.4, FR-3.6, §5).
 /// </summary>
 public sealed class LeftoverCandidateScanner
 {
-    public const string UpdatersGroupName = "Остатки апдейтеров";
+    public const string UpdatersGroupName = LeftoverRuleEngine.UpdatersGroupName;
 
     private readonly Abstractions.IEnvironment _environment;
+    private readonly IProcessInspector _processInspector;
+    private readonly LeftoverRuleEngine _ruleEngine;
 
-    public LeftoverCandidateScanner(Abstractions.IEnvironment? environment = null)
+    public LeftoverCandidateScanner(
+        Abstractions.IEnvironment? environment = null,
+        IProcessInspector? processInspector = null,
+        LeftoverRuleEngine? ruleEngine = null)
     {
         _environment = environment ?? new Environment.EnvironmentProvider();
+        _processInspector = processInspector ?? new ProcessInspector();
+        _ruleEngine = ruleEngine ?? new LeftoverRuleEngine();
     }
 
     public IReadOnlyList<LeftoverCandidate> Scan(
         IReadOnlyList<InstalledApp> installedApps,
         IReadOnlyCollection<string>? exclusions = null)
     {
-        var whitelist = new InstalledWhitelist(installedApps, _environment);
-        var excluded = exclusions ?? Array.Empty<string>();
+        var context = new LeftoverRuleContext
+        {
+            Environment = _environment,
+            Whitelist = new InstalledWhitelist(installedApps, _environment),
+            RunningProcesses = _processInspector.GetRunningProcesses(),
+            Exclusions = exclusions ?? Array.Empty<string>()
+        };
+
         var candidates = new List<LeftoverCandidate>();
 
         foreach (var root in LeftoverScanRoots.Resolve(_environment))
         {
-            ScanRoot(root, whitelist, excluded, candidates);
+            ScanRoot(context, root, candidates);
         }
 
-        ScanLocalAppDataProgramsUpdaters(excluded, candidates);
+        ScanLocalAppDataProgramsUpdaters(context, candidates);
+
+        candidates.AddRange(_ruleEngine.ScanRemovedAppConfigs(context));
 
         return candidates;
     }
 
     private void ScanRoot(
+        LeftoverRuleContext context,
         LeftoverScanRoot root,
-        InstalledWhitelist whitelist,
-        IReadOnlyCollection<string> excluded,
         List<LeftoverCandidate> candidates)
     {
         IReadOnlyList<string> directories;
@@ -58,62 +71,12 @@ public sealed class LeftoverCandidateScanner
 
         foreach (var directory in directories)
         {
-            var name = Path.GetFileName(directory);
-            if (ReservedFolderNames.IsReserved(root.Kind, name) ||
-                ExclusionsStore.IsExcluded(excluded, directory, name))
+            var candidate = _ruleEngine.Classify(context, root, directory);
+            if (candidate is not null)
             {
-                continue;
-            }
-
-            if (UpdaterFolderNames.IsUpdaterFolder(name))
-            {
-                AddUpdater(root, directory, name, candidates);
-            }
-            else if (!whitelist.IsKnownPath(directory))
-            {
-                AddUnmatched(root, directory, name, candidates);
+                candidates.Add(candidate);
             }
         }
-    }
-
-    private void AddUpdater(
-        LeftoverScanRoot root,
-        string directory,
-        string name,
-        List<LeftoverCandidate> candidates)
-    {
-        candidates.Add(new LeftoverCandidate
-        {
-            Path = directory,
-            DisplayName = name,
-            GroupName = UpdatersGroupName,
-            Reason = LeftoverReason.UpdaterFolder,
-            ReasonText = "Имя соответствует маске апдейтера (*-updater/updater/update/_updater): каталог остаётся после установки приложения из инсталлятора (FR-3.2).",
-            Risk = CleanupRisk.Low,
-            Category = CleanupCategory.Leftover,
-            RequiresAdmin = root.RequiresAdmin,
-            SizeBytes = LeftoverDirectoryMeasurer.MeasureSizeBytes(directory),
-            LastWriteTimeUtc = LeftoverDirectoryMeasurer.GetLastWriteTimeUtc(directory)
-        });
-    }
-
-    private void AddUnmatched(
-        LeftoverScanRoot root,
-        string directory,
-        string name,
-        List<LeftoverCandidate> candidates)
-    {
-        candidates.Add(new LeftoverCandidate
-        {
-            Path = directory,
-            DisplayName = name,
-            GroupName = root.GroupName,
-            Reason = LeftoverReason.NotInUninstallRegistry,
-            ReasonText = "Каталог верхнего уровня не сопоставлен ни с одним InstallLocation/DisplayName из реестра Uninstall (FR-3.1).",
-            Risk = CleanupRisk.Medium,
-            Category = CleanupCategory.Leftover,
-            RequiresAdmin = root.RequiresAdmin
-        });
     }
 
     /// <summary>
@@ -121,7 +84,7 @@ public sealed class LeftoverCandidateScanner
     /// (например <c>lm-studio-updater</c>) — находятся на уровень глубже верхнего корня.
     /// </summary>
     private void ScanLocalAppDataProgramsUpdaters(
-        IReadOnlyCollection<string> excluded,
+        LeftoverRuleContext context,
         List<LeftoverCandidate> candidates)
     {
         var programs = Path.Combine(_environment.LocalApplicationData, "Programs");
@@ -148,14 +111,12 @@ public sealed class LeftoverCandidateScanner
 
         foreach (var directory in directories)
         {
-            var name = Path.GetFileName(directory);
-            if (!UpdaterFolderNames.IsUpdaterFolder(name) ||
-                ExclusionsStore.IsExcluded(excluded, directory, name))
+            var candidate = _ruleEngine.Classify(context, root, directory);
+            if (candidate is not null &&
+                candidate.Reason == LeftoverReason.UpdaterFolder)
             {
-                continue;
+                candidates.Add(candidate);
             }
-
-            AddUpdater(root, directory, name, candidates);
         }
     }
 }
