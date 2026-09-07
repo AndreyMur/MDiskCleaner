@@ -174,4 +174,254 @@ public class CacheCleanerTests
         Assert.Equal(CleanOutcome.Error, entry.Outcome);
         Assert.Contains("Docker", entry.Note);
     }
+
+    // ---- Фаза 3 модуля 02 (FR-2.6–2.8): исполнение штатной команды с контролем exit-кода,
+    // повторное измерение размера и «честный» fallback на прямое удаление. ----
+
+    private static CleanupItem CacheWithCommand(
+        string path,
+        string commandFile,
+        string commandArgs,
+        bool allowDirectDelete = true,
+        bool commandOnly = false,
+        int? timeoutSec = null,
+        CleanupRisk risk = CleanupRisk.Low)
+    {
+        var full = System.IO.Path.GetFullPath(path);
+        return new CleanupItem
+        {
+            Key = commandOnly ? "command:" + commandFile : "cache:" + full,
+            Path = commandOnly ? null : full,
+            DisplayName = commandOnly ? commandFile : System.IO.Path.GetFileName(full),
+            Category = CleanupCategory.Cache,
+            Risk = risk,
+            Target = CleanupTarget.Directory,
+            CleanCommandFile = commandFile,
+            CleanCommandArgs = commandArgs,
+            CleanCommandTimeoutSec = timeoutSec,
+            AllowDirectDelete = allowDirectDelete,
+            CommandOnly = commandOnly
+        };
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitZeroReducesSizeEnough_IsNativeCleaned()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("uv-cache");
+        root.CreateFile("uv-cache\\a.bin", 2000);
+        root.CreateFile("uv-cache\\b.bin", 2000);
+
+        var item = CacheWithCommand(dir, "uv", "cache clean");
+        var runner = new FakeCommandRunner((_, _) =>
+        {
+            File.Delete(Path.Combine(dir, "a.bin"));
+            return Task.FromResult(new CommandResult(0, string.Empty, false));
+        });
+
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.NativeCleaned, entry.Outcome);
+        Assert.Equal(2000, entry.FreedBytes);
+        Assert.True(Directory.Exists(dir));
+        Assert.False(File.Exists(Path.Combine(dir, "a.bin")));
+        Assert.True(File.Exists(Path.Combine(dir, "b.bin")));
+        Assert.Empty(entry.Note ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitZeroRemovesDirectory_IsNativeCleaned_WithoutDeleter()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("rustup-toolchains");
+        root.CreateFile("rustup-toolchains\\toolchains\\a\\bin\\rustc.exe", 3000);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c rustup self uninstall -y", timeoutSec: 600);
+        var runner = new FakeCommandRunner((_, _) =>
+        {
+            Directory.Delete(dir, recursive: true);
+            return Task.FromResult(new CommandResult(0, string.Empty, false));
+        });
+
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.NativeCleaned, entry.Outcome);
+        Assert.Equal(3000, entry.FreedBytes);
+        Assert.False(Directory.Exists(dir));
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitZeroPartialEffectBelowThreshold_FallsBackDirectWithMark()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-real");
+        root.CreateFile("npm-real\\small.bin", 900);
+        root.CreateFile("npm-real\\big.bin", 9000);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c npm cache clean --force", timeoutSec: 300);
+        var runner = new FakeCommandRunner((_, _) =>
+        {
+            File.Delete(Path.Combine(dir, "small.bin"));
+            return Task.FromResult(new CommandResult(0, string.Empty, false));
+        });
+
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.Equal(9900, entry.FreedBytes);
+        Assert.False(Directory.Exists(dir));
+        Assert.Contains("«требует прямого удаления»", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("кодом 0", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitZeroNoEffect_FallsBackDirect_AndJournalMarksIt()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-real");
+        root.CreateFile("npm-real\\pkg\\file.bin", 4000);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c npm cache clean --force", timeoutSec: 300);
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, string.Empty, false));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.Equal(4000, entry.FreedBytes);
+        Assert.False(Directory.Exists(dir));
+        Assert.Contains("«требует прямого удаления»", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("применено прямое удаление", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitNonZero_FallsBackDirect_AndNotesExitCode()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("gradle-cache");
+        root.CreateFile("gradle-cache\\a.bin", 5000);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c uv cache clean", timeoutSec: 180);
+        var runner = new FakeCommandRunner().Result(new CommandResult(1, "failed", false));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.Equal(5000, entry.FreedBytes);
+        Assert.False(Directory.Exists(dir));
+        Assert.Contains("кодом 1", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("«требует прямого удаления»", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandTimedOut_StopsCommandAndFallsBackDirect()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("locked-cache");
+        root.CreateFile("locked-cache\\a.bin", 2000);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c npm cache clean --force");
+        var runner = new FakeCommandRunner().Result(new CommandResult(-1, "timed out", true));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.False(Directory.Exists(dir));
+        Assert.Contains("таймаут", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("«требует прямого удаления»", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_NativeCommandExitZeroNoEffect_AndDirectForbidden_IsMarked_NotDeleted()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("system-cache");
+        root.CreateFile("system-cache\\a.bin", 1500);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c some manager clean", allowDirectDelete: false);
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, string.Empty, false));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.Error, entry.Outcome);
+        Assert.Equal(0, entry.FreedBytes);
+        Assert.True(Directory.Exists(dir));
+        Assert.Contains("«требует прямого удаления»", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("недоступно", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_CommandOnly_ParsesReclaimedBytesFromManagerOutput()
+    {
+        using var root = new TempRoot();
+        var item = CacheWithCommand(
+            root.Combine("docker"),
+            "docker",
+            "system prune -af",
+            allowDirectDelete: false,
+            commandOnly: true,
+            timeoutSec: 600,
+            risk: CleanupRisk.Medium);
+
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, "Total reclaimed space: 2GB", false));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.CommandOnlyCleaned, entry.Outcome);
+        Assert.Equal(2L * 1024 * 1024 * 1024, entry.FreedBytes);
+        Assert.Contains("освобождено", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("2 ГБ", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Clean_CommandOnly_ParsesDecimalReclaimedBytes()
+    {
+        using var root = new TempRoot();
+        var item = CacheWithCommand(root.Combine("docker"), "docker", "system prune -af", allowDirectDelete: false, commandOnly: true);
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, "Total reclaimed space: 1.5GB", false));
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal((long)(1.5 * 1024 * 1024 * 1024), entry.FreedBytes);
+    }
+
+    [Fact]
+    public async Task Clean_Command_UsesTimeoutFromCatalogDefinition()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-cache");
+        root.CreateFile("npm-cache\\a.bin", 100);
+
+        var item = CacheWithCommand(dir, "cmd.exe", "/c npm cache clean --force", timeoutSec: 600);
+        var runner = new FakeCommandRunner();
+        var cleaner = new CacheCleanerService(runner: runner);
+        await cleaner.CleanAsync([item]);
+
+        var invocation = Assert.Single(runner.Invocations);
+        Assert.Equal(600, invocation.TimeoutSec);
+    }
+
+    [Fact]
+    public async Task Clean_Command_DefaultsTimeout_WhenCatalogDoesNotSetIt()
+    {
+        using var root = new TempRoot();
+        var item = CacheWithCommand(root.Combine("docker"), "docker", "system prune -af", allowDirectDelete: false, commandOnly: true);
+        var runner = new FakeCommandRunner();
+        var cleaner = new CacheCleanerService(runner: runner);
+        await cleaner.CleanAsync([item]);
+
+        var invocation = Assert.Single(runner.Invocations);
+        Assert.Equal(300, invocation.TimeoutSec);
+    }
 }

@@ -258,4 +258,72 @@ public class CacheCatalogTests
         Assert.False(result.TimedOut);
         Assert.Contains(@"D:\Кэш-пакеты\npm-cache", result.Output);
     }
+
+    // ---- Фаза 3 модуля 02 (раздел 5 PRD 02): штатная команда менеджера в справочнике
+    // и требование повышенного токена для глобальных менеджеров из Program Files. ----
+
+    [Fact]
+    public async Task BuildSeeds_RustupToolchains_CarriesNativeUninstallCommand_InUserContext()
+    {
+        using var root = new TempRoot();
+        var environment = new FakeEnvironment(root);
+        var service = new CacheCatalogService(
+            environment: environment,
+            runner: new FakeCommandRunner(),
+            locator: new FakeCommandLocator());
+
+        var seeds = await service.BuildSeedsAsync();
+        var rustup = seeds.Single(s => s.Key.StartsWith("rustup-toolchains:", StringComparison.Ordinal));
+
+        Assert.Equal(Path.Combine(environment.UserProfile, ".rustup"), rustup.Path);
+        Assert.Equal(CleanupCategory.DevToolchain, rustup.Category);
+        Assert.Equal(CleanupRisk.Medium, rustup.Risk);
+        Assert.Equal("cmd.exe", rustup.CleanCommandFile);
+        Assert.Contains("rustup self uninstall -y", rustup.CleanCommandArgs, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(600, rustup.CleanCommandTimeoutSec);
+        Assert.False(rustup.RequiresAdmin, "rustup self uninstall выполняется в контексте пользователя без админа (PRD 02, раздел 5).");
+    }
+
+    [Fact]
+    public async Task BuildSeeds_GlobalManagerInProgramFiles_MapsRequiresAdminAndTimeout()
+    {
+        using var root = new TempRoot();
+        var environment = new FakeEnvironment(root);
+        var document = new CacheCatalogDocument
+        {
+            Targets =
+            [
+                new CacheTargetDefinition
+                {
+                    Id = "global-tool-cache",
+                    Label = "Global tool cache",
+                    Group = "global-tool",
+                    Category = "Cache",
+                    Risk = "Low",
+                    EnvPaths = [@"%ProgramFiles%\GlobalTool\cache"],
+                    CleanCommand = new CommandDefinition
+                    {
+                        FileName = @"C:\Program Files\GlobalTool\global-tool.exe",
+                        Arguments = "cache clean",
+                        TimeoutSec = 600
+                    },
+                    RequiresAdmin = true
+                }
+            ]
+        };
+
+        var service = new CacheCatalogService(
+            environment: environment,
+            runner: new FakeCommandRunner(),
+            locator: new FakeCommandLocator(),
+            document: document);
+
+        var seeds = await service.BuildSeedsAsync();
+        var seed = Assert.Single(seeds);
+
+        Assert.Equal(Path.Combine(environment.ProgramFiles, "GlobalTool\\cache"), seed.Path);
+        Assert.True(seed.RequiresAdmin, "Глобальный менеджер из Program Files должен исполняться с UAC-подъёмом.");
+        Assert.Equal(@"C:\Program Files\GlobalTool\global-tool.exe", seed.CleanCommandFile);
+        Assert.Equal(600, seed.CleanCommandTimeoutSec);
+    }
 }
