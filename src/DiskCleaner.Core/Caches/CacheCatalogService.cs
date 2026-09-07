@@ -69,24 +69,24 @@ public sealed class CacheCatalogService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            var queryPath = await ResolveConfiguredPathAsync(definition, cancellationToken);
+            var resolvedPath = await ResolveConfiguredPathAsync(definition, cancellationToken);
             var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            if (queryPath is not null)
+            if (resolvedPath is not null)
             {
                 seeds.Add(CreateItem(
                     definition,
-                    queryPath,
+                    resolvedPath,
                     category,
                     risk,
                     group,
                     definition.CleanCommand,
                     allowDirectDelete: definition.AllowDirectDelete,
-                    commandOnly: false));
-                added.Add(queryPath);
+                    commandOnly: false,
+                    isOrphan: false));
+                added.Add(resolvedPath);
             }
 
-            var hasQuery = queryPath is not null;
             foreach (var envPath in envPaths)
             {
                 if (added.Contains(envPath))
@@ -94,15 +94,17 @@ public sealed class CacheCatalogService
                     continue;
                 }
 
+                var isOrphan = resolvedPath is not null && !SamePath(envPath, resolvedPath);
                 seeds.Add(CreateItem(
                     definition,
                     envPath,
                     category,
                     risk,
                     group,
-                    hasQuery ? null : definition.CleanCommand,
+                    resolvedPath is null ? definition.CleanCommand : null,
                     allowDirectDelete: definition.AllowDirectDelete,
-                    commandOnly: false));
+                    commandOnly: false,
+                    isOrphan: isOrphan));
                 added.Add(envPath);
             }
         }
@@ -255,6 +257,21 @@ public sealed class CacheCatalogService
         return null;
     }
 
+    private static bool SamePath(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left).TrimEnd('\\', '/'),
+                Path.GetFullPath(right).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static CleanupItem CreateItem(
         CacheTargetDefinition definition,
         string? path,
@@ -263,18 +280,21 @@ public sealed class CacheCatalogService
         string group,
         CommandDefinition? cleanCommand,
         bool allowDirectDelete,
-        bool commandOnly)
+        bool commandOnly,
+        bool isOrphan = false)
     {
         return new CleanupItem
         {
             Key = $"{definition.Id}:{path ?? "(command)"}",
             Path = path is null ? null : Path.GetFullPath(path),
-            DisplayName = definition.Label,
+            DisplayName = isOrphan ? $"{definition.Label} (осиротевший)" : definition.Label,
             GroupName = group,
             Category = category,
             Risk = risk,
             Target = CleanupTarget.Directory,
-            Description = definition.Description,
+            Description = isOrphan
+                ? "Осиротевший кэш прежней конфигурации: менеджер больше не использует этот путь, данные остались на диске."
+                : definition.Description,
             Warning = definition.Warning,
             ManagerName = group,
             CleanCommand = FormatCommand(cleanCommand),
@@ -282,6 +302,7 @@ public sealed class CacheCatalogService
             CleanCommandArgs = cleanCommand?.Arguments,
             AllowDirectDelete = allowDirectDelete,
             CommandOnly = commandOnly,
+            IsOrphan = isOrphan,
             OwnerProcessNames = definition.OwnerProcessNames
         };
     }

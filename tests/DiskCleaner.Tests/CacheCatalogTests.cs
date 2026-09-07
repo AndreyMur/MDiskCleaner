@@ -1,3 +1,4 @@
+using System.Text;
 using DiskCleaner.Core.Caches;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Models;
@@ -48,6 +49,13 @@ public class CacheCatalogTests
         Assert.Equal("cmd.exe", realSeed.CleanCommandFile);
         Assert.True(realSeed.AllowDirectDelete);
         Assert.Equal(CleanupRisk.Low, realSeed.Risk);
+        Assert.False(realSeed.IsOrphan);
+
+        var orphanSeed = npmSeeds.Single(s => string.Equals(s.Path, orphan, StringComparison.OrdinalIgnoreCase));
+        Assert.True(orphanSeed.IsOrphan);
+        Assert.Contains("осиротевший", orphanSeed.DisplayName, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(orphanSeed.CleanCommandFile);
+        Assert.True(orphanSeed.AllowDirectDelete);
     }
 
     [Fact]
@@ -150,5 +158,104 @@ public class CacheCatalogTests
         Assert.True(docker.CommandOnly);
         Assert.Null(docker.Path);
         Assert.False(docker.AllowDirectDelete);
+    }
+
+    [Fact]
+    public async Task BuildSeeds_ResolvesRealPathOnAnotherDrive_FromCommandOutput()
+    {
+        using var root = new TempRoot();
+        var environment = new FakeEnvironment(root);
+        const string realPath = @"D:\npm-cache\Store";
+
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, realPath, false));
+        var service = new CacheCatalogService(
+            environment: environment,
+            runner: runner,
+            locator: new FakeCommandLocator());
+
+        var seeds = await service.BuildSeedsAsync();
+        var npmSeeds = seeds.Where(s => s.Key.StartsWith("npm-cache:", StringComparison.Ordinal)).ToList();
+
+        var realSeed = npmSeeds.Single(s => string.Equals(s.Path, realPath, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("D:\\", Path.GetPathRoot(realSeed.Path!));
+        Assert.Equal("cmd.exe", realSeed.CleanCommandFile);
+        Assert.False(realSeed.IsOrphan);
+
+        var orphanSeed = npmSeeds.Single(s => s.IsOrphan);
+        Assert.Equal(environment.LocalApplicationData + "\\npm-cache", orphanSeed.Path);
+        Assert.Null(orphanSeed.CleanCommandFile);
+        Assert.True(orphanSeed.AllowDirectDelete);
+    }
+
+    [Fact]
+    public async Task BuildSeeds_PreservesUtf8CyrillicPath_FromCommandOutput()
+    {
+        using var root = new TempRoot();
+        var environment = new FakeEnvironment(root);
+        const string realPath = @"D:\Кэш-пакеты\npm-cache";
+
+        var runner = new FakeCommandRunner().Result(new CommandResult(0, realPath, false));
+        var service = new CacheCatalogService(
+            environment: environment,
+            runner: runner,
+            locator: new FakeCommandLocator());
+
+        var seeds = await service.BuildSeedsAsync();
+        var npmSeeds = seeds.Where(s => s.Key.StartsWith("npm-cache:", StringComparison.Ordinal)).ToList();
+
+        var realSeed = npmSeeds.Single(s => !s.IsOrphan);
+        Assert.Equal(realPath, realSeed.Path);
+        Assert.Equal("cmd.exe", realSeed.CleanCommandFile);
+        Assert.Contains("Кэш-пакеты", realSeed.Path!);
+    }
+
+    [Fact]
+    public async Task BuildSeeds_ResolvesUtf8NpmrcCyrillicCachePath_WhenNpmCommandFails()
+    {
+        using var root = new TempRoot();
+        var environment = new FakeEnvironment(root);
+        const string realPath = @"D:\Кэш-пакеты\npm-cache";
+
+        File.WriteAllText(
+            Path.Combine(environment.UserProfile, ".npmrc"),
+            "; npm user config\nregistry=https://registry.npmjs.org/\ncache=" + realPath + "\n",
+            new UTF8Encoding(false));
+
+        var runner = new FakeCommandRunner().Result(new CommandResult(1, "npm is not recognized", false));
+        var service = new CacheCatalogService(
+            environment: environment,
+            runner: runner,
+            locator: new FakeCommandLocator());
+
+        var seeds = await service.BuildSeedsAsync();
+        var npmSeeds = seeds.Where(s => s.Key.StartsWith("npm-cache:", StringComparison.Ordinal)).ToList();
+
+        var realSeed = npmSeeds.Single(s => !s.IsOrphan);
+        Assert.Equal(realPath, realSeed.Path);
+        Assert.Equal("cmd.exe", realSeed.CleanCommandFile);
+
+        var orphanSeed = npmSeeds.Single(s => s.IsOrphan);
+        Assert.Equal(environment.LocalApplicationData + "\\npm-cache", orphanSeed.Path);
+        Assert.Null(orphanSeed.CleanCommandFile);
+    }
+
+    [Fact]
+    public async Task ProcessCommandRunner_DecodesUtf8CyrillicOutput_AsManagerStdout()
+    {
+        using var root = new TempRoot();
+        var file = root.Combine("output") + "\\cache-path.txt";
+        File.WriteAllText(file, @"D:\Кэш-пакеты\npm-cache" + "\n", new UTF8Encoding(false));
+
+        var runner = new ProcessCommandRunner();
+        var result = await runner.RunAsync(new CommandDefinition
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c type \"" + file + "\"",
+            TimeoutSec = 30
+        });
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.False(result.TimedOut);
+        Assert.Contains(@"D:\Кэш-пакеты\npm-cache", result.Output);
     }
 }

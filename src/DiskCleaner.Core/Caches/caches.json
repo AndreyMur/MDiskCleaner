@@ -32,7 +32,8 @@
       "group": "pip",
       "category": "Cache",
       "risk": "Low",
-      "envPaths": [ "%LocalAppData%\\pip\\Cache", "%LocalAppData%\\pip\\cache" ],
+      "envPaths": [ "%LocalAppData%\\pip\\cache", "%LocalAppData%\\pip\\Cache" ],
+      "pathQuery": { "fileName": "cmd.exe", "arguments": "/c pip cache dir", "timeoutSec": 20 },
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c pip cache purge", "timeoutSec": 180 },
       "description": "Кэш загруженных wheels пакетов pip",
       "warning": "При следующей установке пакеты будут скачаны повторно."
@@ -95,6 +96,7 @@
       "group": "Gradle",
       "category": "DevToolchain",
       "risk": "Medium",
+      "consentLevel": "Ask",
       "envPaths": [ "%UserProfile%\\.gradle\\jdks" ],
       "description": "Автоматически установленные Gradle JDK (toolchains)",
       "warning": "JDK будет установлен повторно при следующей сборке, требующей toolchain. Требует явного согласия."
@@ -125,6 +127,7 @@
       "group": "rustup",
       "category": "DevToolchain",
       "risk": "Medium",
+      "consentLevel": "Ask",
       "envPaths": [ "%UserProfile%\\.rustup" ],
       "description": "Тулчейны Rust, установленные через rustup",
       "warning": "Требуется переустановка тулчейна (rustup toolchain install). Только с явного согласия."

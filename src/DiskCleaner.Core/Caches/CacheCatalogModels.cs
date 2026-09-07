@@ -19,6 +19,14 @@ public sealed class CacheTargetDefinition
 
     public string Risk { get; set; } = "Low";
 
+    /// <summary>
+    /// Уровень согласия на очистку (структура под FR-2.10–2.11):
+    /// <c>Auto</c> — штатная массовая очистка после отметки пользователя;
+    /// <c>Ask</c> — требует явного согласия (Gradle <c>jdks</c>, rustup тулчейн).
+    /// По умолчанию <c>Auto</c>.
+    /// </summary>
+    public string ConsentLevel { get; set; } = "Auto";
+
     public List<string> EnvPaths { get; set; } = new();
 
     public bool CommandOnly { get; set; }
