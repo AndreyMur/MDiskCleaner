@@ -1,4 +1,5 @@
 using DiskCleaner.Core.Abstractions;
+using DiskCleaner.Core.Caches;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Processes;
@@ -137,6 +138,49 @@ public sealed class FakeCommandLocator : ICommandLocator
     public bool IsAvailable(string commandName) =>
         _available.Contains(System.IO.Path.GetFileNameWithoutExtension(commandName)) ||
         _available.Contains(commandName);
+}
+
+/// <summary>
+/// Фиктивный источник свободного места (FR-2.12): возвращает заданную долю свободного
+/// места для диска любого пути, не обращаясь к реальному <see cref="DriveInfo"/>.
+/// </summary>
+public sealed class FakeDriveSpace : IDriveSpaceService
+{
+    private const long TotalBytes = 1_000_000_000;
+
+    private readonly Func<string, CacheDriveSpace?> _resolver;
+
+    public FakeDriveSpace(double freeFraction)
+    {
+        _resolver = root => new CacheDriveSpace(root, (long)(TotalBytes * freeFraction), TotalBytes);
+    }
+
+    /// <param name="fractionByRoot">Доля свободного места по корню диска (например, "C:\").</param>
+    public FakeDriveSpace(IReadOnlyDictionary<string, double> fractionByRoot)
+    {
+        _resolver = root =>
+            fractionByRoot.TryGetValue(root, out var fraction)
+                ? new CacheDriveSpace(root, (long)(TotalBytes * fraction), TotalBytes)
+                : null;
+    }
+
+    public CacheDriveSpace? GetDriveSpace(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var root = System.IO.Path.GetPathRoot(System.IO.Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) ? null : _resolver(root);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
 }
 
 public sealed class FakeProcessInspector : IProcessInspector
