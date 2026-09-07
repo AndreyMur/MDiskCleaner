@@ -33,6 +33,14 @@ public sealed class CacheTargetDefinition
 
     public bool AllowDirectDelete { get; set; } = true;
 
+    /// <summary>
+    /// Требуется ли повышенный токен для исполнения штатной команды (раздел 5 PRD 02):
+    /// глобальные менеджеры, установленные в Program Files, запускаются с UAC-подъёмом
+    /// (<c>Verb = "RunAs"</c>, полная elevated-инфраструктура M2). Кэши пользователя
+    /// (<c>%LOCALAPPDATA%</c>, профиль) и <c>rustup self uninstall</c> — без админа.
+    /// </summary>
+    public bool RequiresAdmin { get; set; }
+
     public List<string> OwnerProcessNames { get; set; } = new();
 
     public CommandDefinition? PathQuery { get; set; }

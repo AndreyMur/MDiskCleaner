@@ -3,6 +3,7 @@ using DiskCleaner.Core.Analysis;
 using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Commanding;
 using DiskCleaner.Core.Models;
+using DiskCleaner.Core.Reports;
 using DiskCleaner.Core.Scanning;
 
 namespace DiskCleaner.Core.Caches;
@@ -10,6 +11,11 @@ namespace DiskCleaner.Core.Caches;
 public sealed class CacheCleanerService
 {
     private const double FallbackThresholdFraction = 0.1;
+
+    /// <summary>Таймаут штатной команды по умолчанию, если в справочнике не задан (FR-2.6).</summary>
+    private const int DefaultCleanCommandTimeoutSec = 300;
+
+    private const string RequiresDirectDeletionMarker = "объект помечен «требует прямого удаления»";
 
     private readonly DirectoryDeleter _deleter;
     private readonly DirectoryScanner _scanner;
@@ -106,7 +112,7 @@ public sealed class CacheCleanerService
             {
                 FileName = item.CleanCommandFile!,
                 Arguments = item.CleanCommandArgs ?? string.Empty,
-                TimeoutSec = 120
+                TimeoutSec = CleanCommandTimeoutOf(item)
             }, cancellationToken);
             nativeRan = true;
 
@@ -139,7 +145,7 @@ public sealed class CacheCleanerService
         {
             if (nativeRan)
             {
-                notes.Add("Штатная команда не уменьшила размер — применено прямое удаление");
+                notes.Add(NativeIneffectiveNote(commandResult, nativeFreed, startSize) + "; применено прямое удаление каталога");
             }
 
             directDeletion = await _deleter.DeleteAsync(item, cancellationToken);
@@ -150,7 +156,7 @@ public sealed class CacheCleanerService
         }
         else if (exists && !item.AllowDirectDelete && nativeRan && nativeFreed < startSize * FallbackThresholdFraction)
         {
-            notes.Add("Команда почти не уменьшила объект; прямое удаление недоступно");
+            notes.Add(NativeIneffectiveNote(commandResult, nativeFreed, startSize) + "; прямое удаление недоступно по конфигурации");
         }
 
         var stillExists = NativeDirectory.Probe(item.Path).Exists;
@@ -210,7 +216,7 @@ public sealed class CacheCleanerService
         {
             FileName = item.CleanCommandFile!,
             Arguments = item.CleanCommandArgs ?? string.Empty,
-            TimeoutSec = 600
+            TimeoutSec = CleanCommandTimeoutOf(item)
         }, cancellationToken);
 
         if (result.TimedOut)
@@ -222,15 +228,58 @@ public sealed class CacheCleanerService
             notes.Add($"Команда завершилась с кодом {result.ExitCode}: {Truncate(result.Output, 200)}");
         }
 
-        var outcome = result.ExitCode == 0 && !result.TimedOut
-            ? CleanOutcome.CommandOnlyCleaned
-            : CleanOutcome.Error;
+        var succeeded = result.ExitCode == 0 && !result.TimedOut;
+        var outcome = succeeded ? CleanOutcome.CommandOnlyCleaned : CleanOutcome.Error;
+
+        long freedBytes = 0;
+        if (succeeded)
+        {
+            var reclaimed = ManagerOutputParser.TryParseReclaimedBytes(result.Output);
+            if (reclaimed is > 0)
+            {
+                freedBytes = reclaimed.Value;
+                notes.Add($"По данным менеджера освобождено ≈ {CleanReportFormatter.FormatBytes(freedBytes)}");
+            }
+            else if (string.IsNullOrWhiteSpace(result.Output))
+            {
+                notes.Add("Объём уточняется повторным анализом");
+            }
+        }
 
         return new CleanEntry(
             item,
             outcome,
-            0,
+            freedBytes,
             notes.Count == 0 ? "Команда выполнена; объём уточняется повторным анализом" : string.Join("; ", notes));
+    }
+
+    private static int CleanCommandTimeoutOf(CleanupItem item) =>
+        item.CleanCommandTimeoutSec is > 0 ? item.CleanCommandTimeoutSec.Value : DefaultCleanCommandTimeoutSec;
+
+    /// <summary>
+    /// Причина неэффективности штатной команды (FR-2.7): команда выполнилась, но размер кэша
+    /// не изменился или уменьшился незначительно (&lt; порога fallback), — объект помечается
+    /// «требует прямого удаления».
+    /// </summary>
+    private static string NativeIneffectiveNote(
+        CommandResult? commandResult,
+        long nativeFreed,
+        long startSize)
+    {
+        var effect = nativeFreed <= 0
+            ? "размер кэша не изменился"
+            : "размер кэша уменьшился незначительно";
+
+        var cause = commandResult is null
+            ? "Штатная команда не выполнена"
+            : commandResult.TimedOut
+                ? "Штатная команда превысила время ожидания, размер кэша не изменился"
+                : commandResult.ExitCode == 0
+                    ? $"Штатная команда завершилась с кодом 0, {effect}"
+                    : $"Штатная команда завершилась с кодом {commandResult.ExitCode}, {effect}";
+
+        var startText = startSize > 0 ? $" (было {CleanReportFormatter.FormatBytes(startSize)})" : string.Empty;
+        return $"{cause}{startText} — {RequiresDirectDeletionMarker} (FR-2.7)";
     }
 
     private static CleanOutcome Classify(

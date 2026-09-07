@@ -20,19 +20,27 @@ public sealed class CacheCatalogService
     private readonly Abstractions.IEnvironment _environment;
     private readonly ICommandRunner _runner;
     private readonly ICommandLocator _locator;
+    private readonly CacheCatalogDocument? _documentOverride;
 
     public CacheCatalogService(
         Abstractions.IEnvironment? environment = null,
         ICommandRunner? runner = null,
-        ICommandLocator? locator = null)
+        ICommandLocator? locator = null,
+        CacheCatalogDocument? document = null)
     {
         _environment = environment ?? new EnvironmentProvider();
         _runner = runner ?? new ProcessCommandRunner();
         _locator = locator ?? new CommandLocator();
+        _documentOverride = document;
     }
 
     public CacheCatalogDocument LoadDocument()
     {
+        if (_documentOverride is not null)
+        {
+            return _documentOverride;
+        }
+
         using var stream = Assembly.GetExecutingAssembly()
             .GetManifestResourceStream("DiskCleaner.Core.Caches.caches.json")
             ?? throw new InvalidOperationException("Встроенный каталог кэшей caches.json не найден.");
@@ -300,6 +308,8 @@ public sealed class CacheCatalogService
             CleanCommand = FormatCommand(cleanCommand),
             CleanCommandFile = cleanCommand?.FileName,
             CleanCommandArgs = cleanCommand?.Arguments,
+            CleanCommandTimeoutSec = cleanCommand?.TimeoutSec,
+            RequiresAdmin = definition.RequiresAdmin,
             AllowDirectDelete = allowDirectDelete,
             CommandOnly = commandOnly,
             IsOrphan = isOrphan,

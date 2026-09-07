@@ -19,7 +19,7 @@ public sealed class ElevatedScenarioBuilder
                 DeleteContentsOnly = item.DeleteContentsOnly,
                 FileName = item.CleanCommandFile,
                 Arguments = item.CleanCommandArgs,
-                TimeoutSec = 300,
+                TimeoutSec = item.CleanCommandTimeoutSec is > 0 ? item.CleanCommandTimeoutSec.Value : 300,
                 ExitCodes = IsMsiexecCommand(item.CleanCommandFile) ? ExitCodePolicy.Msiexec : ExitCodePolicy.Generic,
                 RegistryHive = RegistryHiveOf(item),
                 RegistrySubKeyPath = item.RegistryDeletePath is null ? null : RegistryDeletePathBuilder.RelativePathOf(item.RegistryDeletePath),

@@ -33,6 +33,13 @@ public sealed class CleanupItem
 
     public string? CleanCommandArgs { get; init; }
 
+    /// <summary>
+    /// Максимальное время ожидания штатной команды (секунды) из справочника кэшей
+    /// (<c>cleanCommand.timeoutSec</c>). Используется локальным и elevated-исполнителем;
+    /// при <c>null</c> применяется значение по умолчанию исполнителя.
+    /// </summary>
+    public int? CleanCommandTimeoutSec { get; init; }
+
     public bool RequiresAdmin { get; init; }
 
     public bool CommandOnly { get; init; }
