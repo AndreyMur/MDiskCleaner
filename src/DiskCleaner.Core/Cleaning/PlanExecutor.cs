@@ -51,6 +51,10 @@ public sealed class PlanExecutor
 
         if (cleanOptions.DryRun)
         {
+            // Предпросмотр отражает актуальную занятость процессов (FR-2.8/2.10): если VS Code
+            // (или другой владелец) запущен — объект будет показан как «будет пропущен».
+            var dryRunProcesses = _processInspector.GetRunningProcesses();
+            _inUseDetector.MarkInUse(leaves, dryRunProcesses);
             var dryReport = CreateDryRunReport(leaves, startedAt);
             AuditReport(dryReport);
             return dryReport;
@@ -79,7 +83,7 @@ public sealed class PlanExecutor
                 inUseLeaf,
                 CleanOutcome.InUseSkipped,
                 0,
-                "Используется запущенным процессом — пропущено, план не прерван"));
+                InUseMessages.SkippedNote(inUseLeaf)));
         }
 
         foreach (var userDataLeaf in blockedUserDataLeaves)
@@ -240,7 +244,7 @@ public sealed class PlanExecutor
     {
         if (leaf.InUse)
         {
-            return "Будет пропущено (объект используется процессом)";
+            return $"Будет пропущено. {InUseMessages.SkippedNote(leaf)}";
         }
 
         if (leaf.MoveToRecycleBin)

@@ -424,4 +424,100 @@ public class CacheCleanerTests
         var invocation = Assert.Single(runner.Invocations);
         Assert.Equal(300, invocation.TimeoutSec);
     }
+
+    // ---- Фаза 4 модуля 02: прямое удаление каталога с прогрессом (NFR) и
+    // удаление «осиротевшего» кэша по известному пути без штатной команды (FR-2.4). ----
+
+    [Fact]
+    public async Task Clean_DirectDelete_ReportsProgress_AndFreesAllBytes()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-cache");
+        root.CreateFile("npm-cache\\a.bin", 1000);
+        root.CreateFile("npm-cache\\b.bin", 2000);
+
+        var item = TestItems.Directory(dir);
+        item.SizeBytes = 3000;
+        var events = new List<CleanProgress>();
+        var cleaner = new CacheCleanerService();
+        var report = await cleaner.CleanAsync(
+            [item],
+            new CleanOptions { AllowNativeCommands = false },
+            new Progress<CleanProgress>(events.Add));
+
+        Assert.False(Directory.Exists(dir));
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.Equal(3000, entry.FreedBytes);
+
+        Assert.Contains(
+            events,
+            e => e.Detail is not null &&
+                 e.Detail.Contains("Прямое удаление", StringComparison.OrdinalIgnoreCase) &&
+                 e.BytesCleaned >= 3000);
+    }
+
+    [Fact]
+    public async Task Clean_OrphanCache_IsDirectDeleted_WithoutNativeCommand()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-orphan");
+        root.CreateFile("npm-orphan\\a.bin", 4000);
+
+        var item = new CleanupItem
+        {
+            Key = "npm-cache:" + dir,
+            Path = dir,
+            DisplayName = "npm cache (осиротевший)",
+            Category = CleanupCategory.Cache,
+            Risk = CleanupRisk.Low,
+            Target = CleanupTarget.Directory,
+            IsOrphan = true,
+            AllowDirectDelete = true,
+            CleanCommandFile = "cmd.exe",
+            CleanCommandArgs = "/c npm cache clean --force"
+        };
+
+        var runner = new FakeCommandRunner();
+        var cleaner = new CacheCleanerService(runner: runner);
+        var report = await cleaner.CleanAsync([item]);
+
+        Assert.Empty(runner.Invocations);
+        Assert.False(Directory.Exists(dir));
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DirectDeleted, entry.Outcome);
+        Assert.Equal(4000, entry.FreedBytes);
+        Assert.Contains("осиротевший", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DryRun_OrphanCache_PreviewDeletesNothing_AndExplainsDirectDeletion()
+    {
+        using var root = new TempRoot();
+        var dir = root.Combine("npm-orphan");
+        root.CreateFile("npm-orphan\\a.bin", 2500);
+
+        var item = new CleanupItem
+        {
+            Key = "npm-cache:" + dir,
+            Path = dir,
+            DisplayName = "npm cache (осиротевший)",
+            Category = CleanupCategory.Cache,
+            Risk = CleanupRisk.Low,
+            Target = CleanupTarget.Directory,
+            IsOrphan = true,
+            SizeBytes = 2500
+        };
+
+        var cleaner = new CacheCleanerService();
+        var report = await cleaner.CleanAsync([item], new CleanOptions { DryRun = true });
+
+        Assert.True(Directory.Exists(dir));
+        Assert.True(File.Exists(Path.Combine(dir, "a.bin")));
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.DryRun, entry.Outcome);
+        Assert.Equal(2500, entry.FreedBytes);
+        Assert.Contains("осиротевший", entry.Note, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("удалено напрямую", entry.Note, StringComparison.OrdinalIgnoreCase);
+    }
 }
