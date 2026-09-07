@@ -21,7 +21,7 @@ public class LeftoverCandidateScannerTests
     };
 
     private static LeftoverCandidateScanner Scanner(FakeEnvironment environment) =>
-        new(environment);
+        new(environment, new FakeProcessInspector(), new FakeServiceInspector());
 
     [Fact]
     public void Scan_AdminRootOrphans_ProposedWithBasis_UserRootDirsNotOffered()

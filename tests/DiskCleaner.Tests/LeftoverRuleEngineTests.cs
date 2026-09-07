@@ -22,7 +22,7 @@ public class LeftoverRuleEngineTests
     };
 
     private static LeftoverCandidateScanner Scanner(FakeEnvironment environment, params RunningProcessInfo[] processes) =>
-        new(environment, new FakeProcessInspector(processes));
+        new(environment, new FakeProcessInspector(processes), new FakeServiceInspector());
 
     [Fact]
     public void Scan_AndroidStudioConfigFolder_ProposedWhenProductNotInstalled()

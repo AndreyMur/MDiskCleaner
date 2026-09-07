@@ -7,8 +7,10 @@ namespace DiskCleaner.Core.Leftovers;
 /// Скан «папка → кандидат-остаток» (модуль 03): перебираются только верхние уровни
 /// ключевых каталогов (без рекурсивного обхода, NFR ≤ 60 с), а каждый каталог
 /// классифицируется движком эвристик <see cref="LeftoverRuleEngine"/> (маска апдейтеров,
-/// справочник брендов, «пустые/почти пустые» каталоги, пороги > 1 ГБ, проверка процессов)
-/// в группы с автоматическим основанием — почему каталог остаток (FR-3.1–3.4, FR-3.6, §5).
+/// справочник брендов, «пустые/почти пустые» каталоги, пороги > 1 ГБ, проверки «живых»
+/// объектов — запущенные процессы / вхождение в <c>%PATH%</c> / исполняемые файлы служб)
+/// в группы с автоматическим основанием — почему каталог остаток (FR-3.1–3.5, FR-3.6, §5).
+/// Дополнительно находятся каталоги предыдущей версии Windows <c>Windows.old*</c> (FR-3.5).
 /// </summary>
 public sealed class LeftoverCandidateScanner
 {
@@ -16,15 +18,18 @@ public sealed class LeftoverCandidateScanner
 
     private readonly Abstractions.IEnvironment _environment;
     private readonly IProcessInspector _processInspector;
+    private readonly IServiceInspector _serviceInspector;
     private readonly LeftoverRuleEngine _ruleEngine;
 
     public LeftoverCandidateScanner(
         Abstractions.IEnvironment? environment = null,
         IProcessInspector? processInspector = null,
+        IServiceInspector? serviceInspector = null,
         LeftoverRuleEngine? ruleEngine = null)
     {
         _environment = environment ?? new Environment.EnvironmentProvider();
         _processInspector = processInspector ?? new ProcessInspector();
+        _serviceInspector = serviceInspector ?? new ServiceInspector();
         _ruleEngine = ruleEngine ?? new LeftoverRuleEngine();
     }
 
@@ -37,6 +42,7 @@ public sealed class LeftoverCandidateScanner
             Environment = _environment,
             Whitelist = new InstalledWhitelist(installedApps, _environment),
             RunningProcesses = _processInspector.GetRunningProcesses(),
+            RegisteredServices = _serviceInspector.GetServices(),
             Exclusions = exclusions ?? Array.Empty<string>()
         };
 
@@ -50,6 +56,8 @@ public sealed class LeftoverCandidateScanner
         ScanLocalAppDataProgramsUpdaters(context, candidates);
 
         candidates.AddRange(_ruleEngine.ScanRemovedAppConfigs(context));
+
+        candidates.AddRange(_ruleEngine.ScanWindowsOld(context));
 
         return candidates;
     }

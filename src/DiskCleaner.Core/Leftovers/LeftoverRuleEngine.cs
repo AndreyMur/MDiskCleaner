@@ -5,8 +5,9 @@ namespace DiskCleaner.Core.Leftovers;
 
 /// <summary>
 /// Контекст одного сканирования остатков: белый список установленного ПО, запущенные
-/// процессы, исключения пользователя и окружение. Передаётся движку эвристик
-/// (<see cref="LeftoverRuleEngine"/>), чтобы правила могли решать по пути и имени каталога.
+/// процессы, зарегистрированные службы, исключения пользователя и окружение. Передаётся
+/// движку эвристик (<see cref="LeftoverRuleEngine"/>), чтобы правила могли решать по пути
+/// и имени каталога.
 /// </summary>
 public sealed class LeftoverRuleContext
 {
@@ -16,13 +17,79 @@ public sealed class LeftoverRuleContext
 
     public required IReadOnlyList<RunningProcessInfo> RunningProcesses { get; init; }
 
+    public required IReadOnlyList<RegisteredServiceInfo> RegisteredServices { get; init; }
+
     public required IReadOnlyCollection<string> Exclusions { get; init; }
 
     public bool IsExcluded(string path, string folderName) =>
         ExclusionsStore.IsExcluded(Exclusions, path, folderName);
 
-    /// <summary>Запущен ли процесс с исполняемым файлом внутри каталога (FR-3.3/FR-3.4).</summary>
-    public bool HasRunningProcessUnder(string directory)
+    /// <summary>
+    /// Запущен ли процесс с исполняемым файлом внутри каталога (FR-3.3/FR-3.4, механизм IN_USE).
+    /// Такие каталоги — «живые» объекты и к удалению не предлагаются.
+    /// </summary>
+    public bool HasRunningProcessUnder(string directory) =>
+        MatchesAnyUnder(directory, RunningProcesses.Select(p => p.ExecutablePath));
+
+    /// <summary>
+    /// Зарегистрирована ли служба, исполняемый файл которой лежит внутри каталога (§5 PRD 03).
+    /// Каталог с исполняемым файлом службы не предлагается к удалению.
+    /// </summary>
+    public bool HasRegisteredServiceUnder(string directory) =>
+        MatchesAnyUnder(directory, RegisteredServices.Select(s => s.ExecutablePath));
+
+    /// <summary>
+    /// Входит ли каталог в переменную окружения <c>%PATH%</c> или содержит каталог,
+    /// который в неё входит (§5 PRD 03). Такой каталог используется из командной строки
+    /// и не предлагается к удалению.
+    /// </summary>
+    public bool IsPartOfPathEnvironment(string directory)
+    {
+        var pathValue = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathValue))
+        {
+            return false;
+        }
+
+        string full;
+        try
+        {
+            full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        foreach (var entry in pathValue.Split(Path.PathSeparator))
+        {
+            var candidate = Unquote(entry).Trim();
+            if (candidate.Length == 0)
+            {
+                continue;
+            }
+
+            string expanded;
+            try
+            {
+                expanded = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Environment.ExpandPath(candidate)));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (string.Equals(full, expanded, StringComparison.OrdinalIgnoreCase) ||
+                expanded.StartsWith(full + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool MatchesAnyUnder(string directory, IEnumerable<string?> executables)
     {
         string path;
         try
@@ -34,9 +101,8 @@ public sealed class LeftoverRuleContext
             return false;
         }
 
-        foreach (var process in RunningProcesses)
+        foreach (var executable in executables)
         {
-            var executable = process.ExecutablePath;
             if (!string.IsNullOrEmpty(executable) &&
                 executable.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
@@ -45,6 +111,16 @@ public sealed class LeftoverRuleContext
         }
 
         return false;
+    }
+
+    private static string Unquote(string value)
+    {
+        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+        {
+            return value[1..^1];
+        }
+
+        return value;
     }
 }
 
@@ -61,6 +137,19 @@ public sealed class LeftoverRuleEngine
     public const string UpdatersGroupName = "Остатки апдейтеров";
 
     public const string RemovedAppConfigsGroupName = "Конфиги удалённых программ";
+
+    public const string WindowsOldGroupName = "Предыдущая версия Windows";
+
+    /// <summary>Префикс каталогов предыдущей установки Windows на системном диске (FR-3.5).</summary>
+    public const string WindowsOldNamePrefix = "Windows.old";
+
+    /// <summary>
+    /// Рекомендуемые способы удаления Windows.old (Storage Sense / <c>cleanmgr</c> / DISM, FR-3.5).
+    /// </summary>
+    public const string WindowsOldRemovalMethod =
+        "Storage Sense (Параметры → Система → Память → Временные файлы) или Очистка диска (cleanmgr) → " +
+        "«Очистить системные файлы» → «Предыдущие установки Windows», либо DISM (/Online /Cleanup-Image). " +
+        "Прямое удаление каталога возможно только с админ-правами (UAC).";
 
     /// <summary>Порог §5 PRD 03: папки больше 1 ГБ без явной категории не предлагаются к автоудалению.</summary>
     public const long LargeDirectoryMaxBytes = 1L * 1024 * 1024 * 1024;
@@ -104,7 +193,10 @@ public sealed class LeftoverRuleEngine
 
         if (UpdaterFolderNames.IsUpdaterFolder(name))
         {
-            return CreateUpdaterCandidate(root, directoryPath, name);
+            // «Живой» апдейтер (обновление прямо сейчас) к удалению не предлагается (механизм IN_USE).
+            return IsLiveObject(context, directoryPath)
+                ? null
+                : CreateUpdaterCandidate(root, directoryPath, name);
         }
 
         // Portable-программы и вручную распакованные SDK не регистрируются в Uninstall и не
@@ -122,7 +214,7 @@ public sealed class LeftoverRuleEngine
         var configMatch = TryMatchTopLevelConfig(root.Kind, name);
         if (configMatch is not null &&
             !context.Whitelist.ContainsName(configMatch.Product.InstalledProductName) &&
-            !context.HasRunningProcessUnder(directoryPath))
+            !IsLiveObject(context, directoryPath))
         {
             return CreateRemovedAppConfigCandidate(directoryPath, name, configMatch);
         }
@@ -134,7 +226,7 @@ public sealed class LeftoverRuleEngine
             return null;
         }
 
-        if (context.HasRunningProcessUnder(directoryPath))
+        if (IsLiveObject(context, directoryPath))
         {
             return null;
         }
@@ -155,8 +247,8 @@ public sealed class LeftoverRuleEngine
     /// <summary>
     /// Конфиг-каталоги удалённых продуктов, лежащие внутри контейнеров брендов в AppData
     /// (например <c>%LOCALAPPDATA%\Google\AndroidStudio2025.3.2</c>, FR-3.3). Каталог
-    /// предлагается только когда продукт отсутствует в реестре Uninstall и из него не
-    /// запущено процессов.
+    /// предлагается только когда продукт отсутствует в реестре Uninstall и не является
+    /// «живым» объектом (запущенный процесс / <c>%PATH%</c> / исполняемый файл службы).
     /// </summary>
     public IReadOnlyList<LeftoverCandidate> ScanRemovedAppConfigs(LeftoverRuleContext context)
     {
@@ -213,7 +305,7 @@ public sealed class LeftoverRuleEngine
                 continue;
             }
 
-            if (context.IsExcluded(child, name) || context.HasRunningProcessUnder(child))
+            if (context.IsExcluded(child, name) || IsLiveObject(context, child))
             {
                 continue;
             }
@@ -257,6 +349,93 @@ public sealed class LeftoverRuleEngine
         return null;
     }
 
+    /// <summary>
+    /// Каталоги предыдущей установки Windows (<c>Windows.old</c>, <c>Windows.old.000</c> и т.п.)
+    /// на системном диске (FR-3.5): с размером, признаками «требует админа»/«обязательное
+    /// подтверждение» и рекомендуемым способом удаления (Storage Sense / <c>cleanmgr</c> / DISM).
+    /// Прямое удаление допускается только с админ-правами (§5 PRD 03).
+    /// </summary>
+    public IReadOnlyList<LeftoverCandidate> ScanWindowsOld(LeftoverRuleContext context)
+    {
+        var rootPath = WindowsOldRootPath(context.Environment);
+        if (rootPath is null)
+        {
+            return Array.Empty<LeftoverCandidate>();
+        }
+
+        var candidates = new List<LeftoverCandidate>();
+        IReadOnlyList<string> directories;
+        try
+        {
+            directories = Directory.EnumerateDirectories(rootPath).ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return candidates;
+        }
+
+        foreach (var directory in directories)
+        {
+            var name = Path.GetFileName(directory);
+            if (!name.StartsWith(WindowsOldNamePrefix, StringComparison.OrdinalIgnoreCase) ||
+                context.IsExcluded(directory, name))
+            {
+                continue;
+            }
+
+            var measurement = LeftoverDirectoryMeasurer.Measure(directory);
+            candidates.Add(new LeftoverCandidate
+            {
+                Path = directory,
+                DisplayName = name,
+                GroupName = WindowsOldGroupName,
+                Reason = LeftoverReason.WindowsOld,
+                ReasonText =
+                    $"Каталог предыдущей версии Windows «{name}» остался после обновления ОС. " +
+                    "Удаление делает невозможным откат к предыдущей версии; выполняется только с админ-правами (FR-3.5).",
+                RequiresAdmin = true,
+                RequiresConfirmation = true,
+                Risk = CleanupRisk.Medium,
+                Category = CleanupCategory.SystemFile,
+                SizeBytes = measurement.SizeBytes,
+                FileCount = measurement.FileCount,
+                LastWriteTimeUtc = LeftoverDirectoryMeasurer.GetLastWriteTimeUtc(directory),
+                RecommendedRemovalMethod = WindowsOldRemovalMethod
+            });
+        }
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Системный диск, на котором ищется <c>Windows.old</c>: родитель каталога Program Files
+    /// (на реальной машине — корень диска <c>C:\</c>, в фикстурах тестов — временный корень).
+    /// </summary>
+    private static string? WindowsOldRootPath(Abstractions.IEnvironment environment)
+    {
+        var programFiles = environment.ProgramFiles;
+        if (string.IsNullOrWhiteSpace(programFiles))
+        {
+            return null;
+        }
+
+        try
+        {
+            var trimmed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(programFiles));
+            var parent = Path.GetDirectoryName(trimmed);
+            return string.IsNullOrWhiteSpace(parent) ? null : parent;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private bool IsLiveObject(LeftoverRuleContext context, string directoryPath) =>
+        context.HasRunningProcessUnder(directoryPath) ||
+        context.HasRegisteredServiceUnder(directoryPath) ||
+        context.IsPartOfPathEnvironment(directoryPath);
+
     private static LeftoverCandidate CreateUpdaterCandidate(LeftoverScanRoot root, string directoryPath, string name)
     {
         return new LeftoverCandidate
@@ -269,6 +448,7 @@ public sealed class LeftoverRuleEngine
             Risk = CleanupRisk.Low,
             Category = CleanupCategory.Leftover,
             RequiresAdmin = root.RequiresAdmin,
+            RequiresConfirmation = root.RequiresAdmin,
             SizeBytes = LeftoverDirectoryMeasurer.MeasureSizeBytes(directoryPath),
             LastWriteTimeUtc = LeftoverDirectoryMeasurer.GetLastWriteTimeUtc(directoryPath)
         };
@@ -324,7 +504,7 @@ public sealed class LeftoverRuleEngine
 
         var reasonText =
             "Осиротевший каталог: отсутствует в реестре Uninstall, " + basis +
-            ", запущенных процессов из каталога нет (FR-3.4).";
+            ", «живых» объектов нет — запущенных процессов из каталога нет, путь не входит в %PATH%, служба не зарегистрирована (FR-3.4, §5).";
 
         return new LeftoverCandidate
         {
@@ -336,6 +516,7 @@ public sealed class LeftoverRuleEngine
             Risk = junkBrand ? CleanupRisk.Medium : CleanupRisk.Low,
             Category = CleanupCategory.Leftover,
             RequiresAdmin = root.RequiresAdmin,
+            RequiresConfirmation = root.RequiresAdmin,
             SizeBytes = sizeBytes,
             FileCount = fileCount,
             LastWriteTimeUtc = LeftoverDirectoryMeasurer.GetLastWriteTimeUtc(directoryPath)
