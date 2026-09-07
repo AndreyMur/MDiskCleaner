@@ -24,7 +24,7 @@ public class LeftoverCandidateScannerTests
         new(environment);
 
     [Fact]
-    public void Scan_OnlyTopLevelsOfAllSixRoots_UnmatchedAreCandidates()
+    public void Scan_AdminRootOrphans_ProposedWithBasis_UserRootDirsNotOffered()
     {
         using var root = new TempRoot();
         var environment = new FakeEnvironment(root);
@@ -56,34 +56,34 @@ public class LeftoverCandidateScannerTests
         Assert.DoesNotContain(candidates, c =>
             c.Path.Contains("\\Google\\", StringComparison.OrdinalIgnoreCase));
 
-        Assert.Contains(candidates, c =>
-            c.Path == root.Combine("ProgramFiles", "Orphan Tool") &&
-            c.GroupName == "Осиротевшие папки в Program Files" &&
-            c.RequiresAdmin &&
-            c.Reason == LeftoverReason.NotInUninstallRegistry);
+        // Program Files: почти пустой каталог без записи Uninstall и без процессов → остаток (FR-3.4).
+        var orphan = Assert.Single(candidates, c =>
+            c.Path == root.Combine("ProgramFiles", "Orphan Tool"));
+        Assert.Equal("Осиротевшие папки в Program Files", orphan.GroupName);
+        Assert.True(orphan.RequiresAdmin);
+        Assert.Equal(LeftoverReason.NearEmptyDirectory, orphan.Reason);
+        Assert.Contains("реестр", orphan.ReasonText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("почти пуст", orphan.ReasonText, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains(candidates, c =>
             c.Path == root.Combine("ProgramFilesX86", "OldTool") &&
             c.GroupName == "Осиротевшие папки в Program Files (x86)" &&
             c.RequiresAdmin);
 
-        Assert.Contains(candidates, c =>
-            c.Path == root.Combine("ProgramData", "Wondershare") &&
-            c.RequiresAdmin);
+        // ProgramData: известный «мусорный» бренд удалённой программы.
+        var wondershare = Assert.Single(candidates, c =>
+            c.Path == root.Combine("ProgramData", "Wondershare"));
+        Assert.Equal(LeftoverReason.OrphanProgramData, wondershare.Reason);
+        Assert.Equal(CleanupRisk.Medium, wondershare.Risk);
+        Assert.True(wondershare.RequiresAdmin);
 
-        Assert.Contains(candidates, c =>
-            c.Path == root.Combine("LocalAppData", "SomeApp") &&
-            !c.RequiresAdmin);
-
-        Assert.Contains(candidates, c =>
-            c.Path == root.Combine("AppData", "SomeApp") &&
-            c.GroupName == "Осиротевшие каталоги в %APPDATA%" &&
-            !c.RequiresAdmin);
-
-        Assert.Contains(candidates, c =>
-            c.Path == root.Combine("UserProfile", ".leftover-dir") &&
-            c.GroupName == "Осиротевшие каталоги в %USERPROFILE%" &&
-            !c.RequiresAdmin);
+        // Каталоги пользовательских корней без явной категории (апдейтер/конфиг) не остатки.
+        Assert.DoesNotContain(candidates, c =>
+            c.Path == root.Combine("LocalAppData", "SomeApp"));
+        Assert.DoesNotContain(candidates, c =>
+            c.Path == root.Combine("AppData", "SomeApp"));
+        Assert.DoesNotContain(candidates, c =>
+            c.Path == root.Combine("UserProfile", ".leftover-dir"));
     }
 
     [Fact]
