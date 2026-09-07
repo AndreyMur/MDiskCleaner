@@ -59,7 +59,7 @@ public class AnalysisScreenSmokeTests
             {
                 Handler = _ => SamplePlan.Build()
             };
-            var vm = new MainViewModel(fake);
+            var vm = MainViewModelFactory.Create(fake);
 
             await vm.AnalyzeCommand.ExecuteAsync(null);
             foreach (var leaf in vm.RootNodes.SelectMany(n => n.GetLeaves()).Take(2))

@@ -148,7 +148,7 @@ public class MainViewModelAnalysisScreenTests
         {
             Handler = _ => SamplePlan.Build()
         };
-        return (new MainViewModel(fake), fake);
+        return (MainViewModelFactory.Create(fake), fake);
     }
 
     private static TreeItemViewModel Check(IEnumerable<TreeItemViewModel> leaves, string displayName) =>
