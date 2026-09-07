@@ -121,6 +121,41 @@ public class InUseSafetyTests
         }
     }
 
+    [Fact]
+    public async Task Clean_VSCodeCacheWhileCodeRunning_IsSkipped_WithOwnerProcessReason()
+    {
+        using var root = new TempRoot();
+        var dir = Path.Combine(root.AppData, "Code", "Cache");
+        root.CreateFile("AppData\\Code\\Cache\\a.bin", 700);
+
+        var item = new CleanupItem
+        {
+            Key = "vscode-cache:" + dir,
+            Path = dir,
+            DisplayName = "VS Code Cache",
+            Category = CleanupCategory.Cache,
+            Risk = CleanupRisk.Low,
+            Target = CleanupTarget.Directory,
+            OwnerProcessNames = new[] { "Code", "Code - Insiders", "VSCodium" },
+            AllowDirectDelete = true
+        };
+
+        var fakeProcesses = new FakeProcessInspector(
+            new RunningProcessInfo(@"C:\Program Files\Microsoft VS Code\Code.exe", "Code"));
+        var executor = new PlanExecutor(
+            localCleaner: new CacheCleanerService(),
+            elevatedRunner: new ElevatedScenarioRunner(),
+            processInspector: fakeProcesses);
+
+        var report = await executor.CleanAsync([item]);
+
+        var entry = Assert.Single(report.Entries);
+        Assert.Equal(CleanOutcome.InUseSkipped, entry.Outcome);
+        Assert.Equal(1, report.DeferredItems);
+        Assert.Equal(0, report.FailedItems);
+        Assert.True(Directory.Exists(dir));
+    }
+
     private sealed class RecordingElevatedRunner : IElevatedRunner
     {
         public ElevatedScenario? InvokedScenario { get; private set; }

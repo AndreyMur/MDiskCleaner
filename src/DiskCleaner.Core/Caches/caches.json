@@ -140,6 +140,7 @@
       "risk": "Medium",
       "consentLevel": "Ask",
       "envPaths": [ "%UserProfile%\\.rustup" ],
+      "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c rustup self uninstall -y", "timeoutSec": 600 },
       "description": "Тулчейны Rust, установленные через rustup",
       "restoreHint": "reinstall",
       "warning": "Требуется переустановка тулчейна (rustup toolchain install). Только с явного согласия."
