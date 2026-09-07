@@ -51,4 +51,13 @@ public sealed class CacheTargetDefinition
     public string? Description { get; set; }
 
     public string? Warning { get; set; }
+
+    /// <summary>
+    /// Как восстанавливается кэш после очистки (карточка действия, FR-2.5):
+    /// <c>download</c> — содержимое скачивается заново (трафик ≈ объёму кэша);
+    /// <c>reinstall</c> — требуется повторная установка тулчейна/инструмента;
+    /// <c>recreate</c> — пересоздаётся локально без трафика.
+    /// По умолчанию <c>download</c>.
+    /// </summary>
+    public string RestoreHint { get; set; } = "download";
 }

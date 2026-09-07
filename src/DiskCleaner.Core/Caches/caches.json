@@ -12,6 +12,7 @@
       "configFilePaths": [ "%USERPROFILE%\\.npmrc", "%APPDATA%\\npm\\etc\\npmrc" ],
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c npm cache clean --force", "timeoutSec": 300 },
       "description": "Кэш пакетов npm (содержимое node_modules на установку)",
+      "restoreHint": "download",
       "warning": "При следующей установке/сборке пакеты будут загружены заново (трафик и время). Осиротевший кэш прежней конфигурации удаляется напрямую."
     },
     {
@@ -24,6 +25,7 @@
       "pathQuery": { "fileName": "cmd.exe", "arguments": "/c pnpm store path", "timeoutSec": 20 },
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c pnpm store prune", "timeoutSec": 300 },
       "description": "Хранилище пакетов pnpm (store)",
+      "restoreHint": "download",
       "warning": "Пакеты, не используемые проектами, будут загружены заново при необходимости."
     },
     {
@@ -36,6 +38,7 @@
       "pathQuery": { "fileName": "cmd.exe", "arguments": "/c pip cache dir", "timeoutSec": 20 },
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c pip cache purge", "timeoutSec": 180 },
       "description": "Кэш загруженных wheels пакетов pip",
+      "restoreHint": "download",
       "warning": "При следующей установке пакеты будут скачаны повторно."
     },
     {
@@ -48,6 +51,7 @@
       "pathQuery": { "fileName": "cmd.exe", "arguments": "/c uv cache dir", "timeoutSec": 20 },
       "cleanCommand": { "fileName": "cmd.exe", "arguments": "/c uv cache clean", "timeoutSec": 180 },
       "description": "Кэш пакетов Python-менеджера uv",
+      "restoreHint": "download",
       "warning": "При следующей установке пакеты будут скачаны повторно."
     },
     {
@@ -58,6 +62,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.cache\\dotslash", "%LocalAppData%\\dotslash" ],
       "description": "Кэш загруженных инструментов dotslash",
+      "restoreHint": "download",
       "warning": "Инструменты будут загружены повторно при вызове."
     },
     {
@@ -68,6 +73,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.gradle\\caches" ],
       "description": "Кэш зависимостей и артефактов сборки Gradle",
+      "restoreHint": "download",
       "warning": "При следующей сборке зависимости будут скачаны заново."
     },
     {
@@ -78,6 +84,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.gradle\\wrapper\\dists" ],
       "description": "Загруженные дистрибутивы Gradle wrapper",
+      "restoreHint": "download",
       "warning": "Дистрибутив Gradle будет загружен повторно при первом запуске wrapper."
     },
     {
@@ -88,6 +95,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.gradle\\daemon" ],
       "description": "Журналы и временные файлы фоновых процессов Gradle daemon",
+      "restoreHint": "recreate",
       "warning": "Daemon пересоздаст файлы при следующем запуске сборки."
     },
     {
@@ -99,6 +107,7 @@
       "consentLevel": "Ask",
       "envPaths": [ "%UserProfile%\\.gradle\\jdks" ],
       "description": "Автоматически установленные Gradle JDK (toolchains)",
+      "restoreHint": "reinstall",
       "warning": "JDK будет установлен повторно при следующей сборке, требующей toolchain. Требует явного согласия."
     },
     {
@@ -109,6 +118,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.cargo\\registry" ],
       "description": "Кэш скачанных crates (registry) и их индексов",
+      "restoreHint": "download",
       "warning": "Зависимости будут скачаны повторно при следующей сборке."
     },
     {
@@ -119,6 +129,7 @@
       "risk": "Low",
       "envPaths": [ "%UserProfile%\\.cargo\\git" ],
       "description": "Git-зависимости Cargo (checkouts и кэш баз данных)",
+      "restoreHint": "download",
       "warning": "Git-зависимости будут клонированы повторно при следующей сборке."
     },
     {
@@ -130,6 +141,7 @@
       "consentLevel": "Ask",
       "envPaths": [ "%UserProfile%\\.rustup" ],
       "description": "Тулчейны Rust, установленные через rustup",
+      "restoreHint": "reinstall",
       "warning": "Требуется переустановка тулчейна (rustup toolchain install). Только с явного согласия."
     },
     {
@@ -140,6 +152,7 @@
       "risk": "Low",
       "envPaths": [ "%LocalAppData%\\ms-playwright" ],
       "description": "Скачанные браузеры Playwright",
+      "restoreHint": "reinstall",
       "warning": "Повторная установка: npx playwright install."
     },
     {
@@ -151,6 +164,7 @@
       "envPaths": [ "%AppData%\\Code\\Cache" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Кэш файлов VS Code (Cache)",
+      "restoreHint": "recreate",
       "warning": "Пересоздаётся при запуске. Если VS Code запущен — объект будет отложен."
     },
     {
@@ -162,6 +176,7 @@
       "envPaths": [ "%AppData%\\Code\\CachedData" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Кэш данных VS Code (CachedData)",
+      "restoreHint": "recreate",
       "warning": "Пересоздаётся при запуске. Если VS Code запущен — объект будет отложен."
     },
     {
@@ -173,6 +188,7 @@
       "envPaths": [ "%AppData%\\Code\\CachedExtensionVSIXs" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Кэш установленных расширений VS Code (VSIX)",
+      "restoreHint": "download",
       "warning": "Расширения будут скачаны повторно при установке."
     },
     {
@@ -184,6 +200,7 @@
       "envPaths": [ "%AppData%\\Code\\Crashpad" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Данные Crashpad VS Code (сборки сбоев)",
+      "restoreHint": "recreate",
       "warning": "Пересоздаётся автоматически."
     },
     {
@@ -195,6 +212,7 @@
       "envPaths": [ "%AppData%\\Code\\GPUCache" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Кэш GPU рендеринга VS Code",
+      "restoreHint": "recreate",
       "warning": "Пересоздаётся автоматически."
     },
     {
@@ -206,6 +224,7 @@
       "envPaths": [ "%AppData%\\Code\\logs" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Журналы VS Code",
+      "restoreHint": "recreate",
       "warning": "Пересоздаются при следующем запуске."
     },
     {
@@ -217,6 +236,7 @@
       "envPaths": [ "%AppData%\\Code\\WebStorage" ],
       "ownerProcessNames": [ "Code", "Code - Insiders", "VSCodium" ],
       "description": "Кэш WebStorage VS Code",
+      "restoreHint": "recreate",
       "warning": "Пересоздаётся; возможен повторный вход в веб-аккаунты."
     },
     {
@@ -228,6 +248,7 @@
       "commandOnly": true,
       "cleanCommand": { "fileName": "docker", "arguments": "system prune -af", "timeoutSec": 600 },
       "description": "Неиспользуемые образы, контейнеры, сети и build-кэш Docker",
+      "restoreHint": "download",
       "warning": "Удаляет неиспользуемые объекты Docker. Тома контейнеров не затрагиваются. Требуется запущенный Docker."
     }
   ]
