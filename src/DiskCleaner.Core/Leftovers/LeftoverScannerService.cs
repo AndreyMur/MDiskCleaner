@@ -16,15 +16,6 @@ public sealed class LeftoverScannerService
         "wondershareupdate", "pdfconverter", "360", "viewplaycap", "activation-renewal", "pachca"
     };
 
-    private static readonly HashSet<string> SystemProgramFilesFolders = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "common files", "internet explorer", "windows nt", "windows defender", "windows photo viewer",
-        "windows mail", "windows media player", "windows portable devices", "reference assemblies",
-        "msbuild", "uninstall information", "windowsapps", "windowspowershell", "microsoft shared",
-        "windows kits", "microsoft visual studio", "dotnet", "git", "package manager", "windows security",
-        "modifiablewindowsapps", "windows update"
-    };
-
     private readonly Abstractions.IEnvironment _environment;
     private readonly IProcessInspector _processInspector;
 
@@ -40,7 +31,7 @@ public sealed class LeftoverScannerService
         IReadOnlyList<InstalledApp> installedApps,
         IReadOnlyCollection<string>? exclusions = null)
     {
-        var whitelist = new InstalledWhitelist(installedApps);
+        var whitelist = new InstalledWhitelist(installedApps, _environment);
         var runningProcesses = _processInspector.GetRunningProcesses();
         var excluded = exclusions ?? Array.Empty<string>();
         var results = new List<CleanupItem>();
@@ -71,7 +62,7 @@ public sealed class LeftoverScannerService
             foreach (var directory in Directory.EnumerateDirectories(root))
             {
                 var name = Path.GetFileName(directory);
-                if (!LooksLikeUpdaterFolder(name) ||
+                if (!UpdaterFolderNames.IsUpdaterFolder(name) ||
                     ExclusionsStore.IsExcluded(excluded, directory, name))
                 {
                     continue;
@@ -119,7 +110,7 @@ public sealed class LeftoverScannerService
             {
                 var name = Path.GetFileName(directory);
                 if (ExclusionsStore.IsExcluded(excluded, directory, name) ||
-                    SystemProgramFilesFolders.Contains(name) ||
+                    ReservedFolderNames.IsReservedProgramFilesFolder(name) ||
                     whitelist.IsKnownFolder(name))
                 {
                     continue;
@@ -297,8 +288,4 @@ public sealed class LeftoverScannerService
             return false;
         }
     }
-
-    private static bool LooksLikeUpdaterFolder(string name) =>
-        name.EndsWith("-updater", StringComparison.OrdinalIgnoreCase) ||
-        name.EndsWith("_updater", StringComparison.OrdinalIgnoreCase);
 }
