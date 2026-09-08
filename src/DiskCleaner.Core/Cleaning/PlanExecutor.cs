@@ -17,6 +17,7 @@ public sealed class PlanExecutor
     private readonly LocalRegistryCleaner _registryCleaner;
     private readonly IProcessInspector _processInspector;
     private readonly InUseDetector _inUseDetector;
+    private readonly ProcessSnapshotCache? _processSnapshotCache;
 
     public PlanExecutor(
         CacheCleanerService? localCleaner = null,
@@ -25,7 +26,8 @@ public sealed class PlanExecutor
         ICommandRunner? commandRunner = null,
         LocalRegistryCleaner? registryCleaner = null,
         IProcessInspector? processInspector = null,
-        InUseDetector? inUseDetector = null)
+        InUseDetector? inUseDetector = null,
+        ProcessSnapshotCache? processSnapshotCache = null)
     {
         _localCleaner = localCleaner ?? new CacheCleanerService();
         _elevatedRunner = elevatedRunner ?? new ElevatedProcessLauncher();
@@ -34,6 +36,7 @@ public sealed class PlanExecutor
         _registryCleaner = registryCleaner ?? new LocalRegistryCleaner();
         _processInspector = processInspector ?? new ProcessInspector();
         _inUseDetector = inUseDetector ?? new InUseDetector();
+        _processSnapshotCache = processSnapshotCache;
     }
 
     public async Task<CleanReport> CleanAsync(
@@ -52,15 +55,17 @@ public sealed class PlanExecutor
         {
             // Предпросмотр отражает актуальную занятость процессов (FR-2.8/2.10): если VS Code
             // (или другой владелец) запущен — объект будет показан как «будет пропущен».
-            var dryRunProcesses = _processInspector.GetRunningProcesses();
+            var dryRunProcesses = GetPlanProcesses();
             _inUseDetector.MarkInUse(leaves, dryRunProcesses);
             var dryReport = CreateDryRunReport(leaves, startedAt);
             WriteJournal(dryReport);
             return dryReport;
         }
 
-        // Предварительная проверка занятости перед удалением (FR-5.7): один снапшот процессов на план.
-        var runningProcesses = _processInspector.GetRunningProcesses();
+        // Предварительная проверка занятости перед удалением (FR-5.7): один кэшируемый на время
+        // плана снимок процессов; при разделяемом снимке (processSnapshotCache) он одинаков для
+        // всех исполнителей, работающих над одним планом.
+        var runningProcesses = GetPlanProcesses();
         _inUseDetector.MarkInUse(leaves, runningProcesses);
 
         var inUseLeaves = leaves.Where(l => l.InUse).ToList();
@@ -231,6 +236,17 @@ public sealed class PlanExecutor
 
     private static bool RequiresElevation(CleanupItem item) =>
         item.RequiresAdmin;
+
+    /// <summary>
+    /// Снимок процессов для текущего плана (FR-5.7). При разделяемом
+    /// <see cref="ProcessSnapshotCache"/> возвращается кэшированный список (одинаковый для всех
+    /// исполнителей плана); иначе создаётся разовый снимок на вызов исполнителя.
+    /// </summary>
+    private IReadOnlyList<RunningProcessInfo> GetPlanProcesses()
+    {
+        var cache = _processSnapshotCache ?? new ProcessSnapshotCache(_processInspector);
+        return cache.Processes;
+    }
 
     private static CleanReport CreateDryRunReport(IReadOnlyList<CleanupItem> leaves, DateTime startedAt)
     {
