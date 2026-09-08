@@ -16,8 +16,20 @@ public sealed record UninstallCommand(UninstallerKind Kind, string FileName, str
         string.IsNullOrWhiteSpace(Arguments) ? FileName : $"{FileName} {Arguments}";
 }
 
+/// <summary>
+/// Разбор <c>UninstallString</c>/<c>QuietUninstallString</c> и построение команды удаления
+/// (FR-4.5): MSI → <c>msiexec /x {GUID} /qn /norestart</c>; Inno (<c>unins000.exe</c>) →
+/// тихие ключи; NSIS (<c>Uninstall.exe</c>) → <c>/S</c>; прочие — запуск «как есть»
+/// с сохранением аргументов: если в строке уже есть известный тихий ключ — команда тихая,
+/// иначе это GUI-профиль (<see cref="UninstallCommand.Silent"/> = false).
+/// </summary>
 public sealed partial class UninstallStringParser
 {
+    private static readonly HashSet<string> KnownSilentSwitches = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "s", "silent", "quiet", "verysilent", "qn", "qb", "norestart"
+    };
+
     public UninstallCommand? Parse(string? uninstallString, string? productCode = null)
     {
         if (string.IsNullOrWhiteSpace(uninstallString))
@@ -32,7 +44,7 @@ public sealed partial class UninstallStringParser
             return msi;
         }
 
-        var file = ExtractExecutable(text);
+        var (file, trailingArguments) = SplitExecutable(text);
         if (file is null)
         {
             return null;
@@ -56,10 +68,18 @@ public sealed partial class UninstallStringParser
             _ => new UninstallCommand(
                 UninstallerKind.Generic,
                 file,
-                string.Empty,
-                Silent: false)
+                trailingArguments,
+                HasSilentSwitch(trailingArguments))
         };
     }
+
+    /// <summary>
+    /// Строит команду для записи <see cref="InstalledApp"/>: для тихого удаления
+    /// предпочитается <see cref="InstalledApp.QuietUninstallString"/> (FR-4.5), при его
+    /// отсутствии — обычный <see cref="InstalledApp.UninstallString"/>.
+    /// </summary>
+    public UninstallCommand? ParseFor(InstalledApp app) =>
+        Parse(app.QuietUninstallString ?? app.UninstallString, app.ProductCode);
 
     private bool TryParseMsi(string text, out UninstallCommand? command)
     {
@@ -100,28 +120,45 @@ public sealed partial class UninstallStringParser
         return UninstallerKind.Generic;
     }
 
-    private static string? ExtractExecutable(string text)
+    /// <summary>Выделяет исполняемый файл и сохраняет аргументы после него («запуск как есть», FR-4.5).</summary>
+    private static (string? File, string Arguments) SplitExecutable(string text)
     {
-        var candidate = ExtractQuotedPath(text) ?? ExtractFirstToken(text);
-        if (string.IsNullOrWhiteSpace(candidate))
+        var quotedMatch = QuotedPathRegex().Match(text);
+        if (quotedMatch.Success)
         {
-            return null;
+            var arguments = text[(quotedMatch.Index + quotedMatch.Length)..].Trim();
+            return (quotedMatch.Groups[1].Value, arguments);
         }
 
-        candidate = candidate.Trim().Trim('"');
-        return candidate.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? candidate : null;
+        var tokenMatch = ExePathRegex().Match(text);
+        if (tokenMatch.Success &&
+            tokenMatch.Value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            var arguments = text[(tokenMatch.Index + tokenMatch.Length)..].Trim();
+            return (tokenMatch.Value, arguments);
+        }
+
+        return (null, string.Empty);
     }
 
-    private static string? ExtractQuotedPath(string text)
+    private static bool HasSilentSwitch(string? arguments)
     {
-        var match = QuotedPathRegex().Match(text);
-        return match.Success ? match.Groups[1].Value : null;
-    }
+        if (string.IsNullOrWhiteSpace(arguments))
+        {
+            return false;
+        }
 
-    private static string? ExtractFirstToken(string text)
-    {
-        var match = ExePathRegex().Match(text);
-        return match.Success ? match.Value : null;
+        var tokens = arguments.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var rawToken in tokens)
+        {
+            var token = rawToken.Trim().TrimStart('/', '-');
+            if (KnownSilentSwitches.Contains(token))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string? ExtractProductCode(string text)

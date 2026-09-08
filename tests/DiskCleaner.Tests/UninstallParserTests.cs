@@ -62,6 +62,61 @@ public class UninstallParserTests
     }
 
     [Fact]
+    public void Parse_GenericWithTrailingArguments_RunsAsIs()
+    {
+        var command = _parser.Parse("\"C:\\Program Files\\Acme\\cleaner.exe\" --remove --purge");
+
+        Assert.NotNull(command);
+        Assert.Equal(UninstallerKind.Generic, command.Kind);
+        Assert.False(command.Silent);
+        Assert.Equal("--remove --purge", command.Arguments);
+    }
+
+    [Fact]
+    public void Parse_GenericWithKnownSilentSwitch_MarksSilent()
+    {
+        var command = _parser.Parse("\"C:\\vendor\\tool.exe\" /silent");
+
+        Assert.NotNull(command);
+        Assert.Equal(UninstallerKind.Generic, command.Kind);
+        Assert.True(command.Silent);
+        Assert.Equal("/silent", command.Arguments);
+    }
+
+    [Theory]
+    [InlineData("\"C:\\vendor\\a.exe\" /s")]
+    [InlineData("\"C:\\vendor\\a.exe\" --quiet")]
+    [InlineData("\"C:\\vendor\\a.exe\" -silent")]
+    [InlineData("\"C:\\vendor\\a.exe\" /qn")]
+    public void Parse_GenericOtherSilentSwitchVariants_MarkSilent(string uninstallString)
+    {
+        var command = _parser.Parse(uninstallString);
+
+        Assert.NotNull(command);
+        Assert.True(command.Silent);
+    }
+
+    [Fact]
+    public void ParseFor_PrefersQuietUninstallString()
+    {
+        var app = new InstalledApp
+        {
+            ProductCode = "{12345678-1234-1234-1234-123456789012}",
+            ScopeKey = nameof(InstalledAppScope.LocalMachine64),
+            DisplayName = "Sample",
+            UninstallString = "\"C:\\Program Files\\Sample\\cleaner.exe\"",
+            QuietUninstallString = "\"C:\\Program Files\\Sample\\cleaner.exe\" /silent"
+        };
+
+        var command = _parser.ParseFor(app);
+
+        Assert.NotNull(command);
+        Assert.Equal(UninstallerKind.Generic, command.Kind);
+        Assert.True(command.Silent);
+        Assert.Equal("/silent", command.Arguments);
+    }
+
+    [Fact]
     public void Parse_EmptyString_ReturnsNull()
     {
         Assert.Null(_parser.Parse(null));
