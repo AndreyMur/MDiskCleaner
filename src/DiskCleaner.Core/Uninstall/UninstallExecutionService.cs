@@ -23,15 +23,21 @@ public sealed class UninstallExecutionService
     private readonly UninstallStringParser _parser;
     private readonly IElevatedRunner _elevatedRunner;
     private readonly ICommandRunner _commandRunner;
+    private readonly BundleFallbackResolver? _bundleResolver;
+    private readonly string? _programDataRoot;
 
     public UninstallExecutionService(
         UninstallStringParser? parser = null,
         IElevatedRunner? elevatedRunner = null,
-        ICommandRunner? commandRunner = null)
+        ICommandRunner? commandRunner = null,
+        BundleFallbackResolver? bundleResolver = null,
+        string? programDataRoot = null)
     {
         _parser = parser ?? new UninstallStringParser();
         _elevatedRunner = elevatedRunner ?? new ElevatedProcessLauncher();
         _commandRunner = commandRunner ?? new ProcessCommandRunner();
+        _bundleResolver = bundleResolver ?? new BundleFallbackResolver();
+        _programDataRoot = programDataRoot;
     }
 
     public UninstallExecutionItem BuildItem(InstalledApp app) =>
@@ -138,7 +144,78 @@ public sealed class UninstallExecutionService
                 $"Не удалось запустить деинсталлятор '{command.FileName}': {ex.Message}");
         }
 
+        // FR-4.6: msiexec /x пакетной (bundle) записи возвращает 1605 («это не MSI») —
+        // запускаем штатный деинсталлятор из %ProgramData%\Package Cache\{code}.
+        if (item.IsMsiexec && !result.TimedOut &&
+            UninstallExitCodes.Classify(result.ExitCode) == ProcessExitMeaning.NotInstalled &&
+            _bundleResolver is not null)
+        {
+            var fallbackCommand = _bundleResolver.TryResolveBundleUninstallCommand(
+                BundleFallbackResolver.ProductCodeOf(item.App),
+                _programDataRoot);
+            if (fallbackCommand is not null)
+            {
+                return await RunBundleFallbackInUserContextAsync(item, fallbackCommand, options, cancellationToken);
+            }
+        }
+
         return MapProcessResult(item, result, scope: "пользователя");
+    }
+
+    private async Task<UninstallExecutionEntry> RunBundleFallbackInUserContextAsync(
+        UninstallExecutionItem item,
+        UninstallCommand fallbackCommand,
+        UninstallExecutionOptions options,
+        CancellationToken cancellationToken)
+    {
+        CommandResult result;
+        try
+        {
+            result = await _commandRunner.RunAsync(new CommandDefinition
+            {
+                FileName = fallbackCommand.FileName,
+                Arguments = fallbackCommand.Arguments,
+                TimeoutSec = options.CommandTimeoutSec
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return CreateEntry(
+                item,
+                UninstallExecutionOutcome.Failed,
+                null,
+                $"Не удалось запустить штатный деинсталлятор пакета '{fallbackCommand.FileName}': {ex.Message}");
+        }
+
+        if (result.TimedOut)
+        {
+            return CreateEntry(
+                item,
+                UninstallExecutionOutcome.TimedOut,
+                null,
+                $"Открыт мастер удаления пакета ({Path.GetFileName(fallbackCommand.FileName)}) — ожидание истекло; завершите его вручную.");
+        }
+
+        if (result.ExitCode != 0)
+        {
+            return CreateEntry(
+                item,
+                UninstallExecutionOutcome.Failed,
+                result.ExitCode,
+                $"Штатный деинсталлятор пакета завершился с кодом {result.ExitCode}: {Truncate(result.Output, 200)}");
+        }
+
+        var engineName = Path.GetFileName(fallbackCommand.FileName);
+        var note = engineName.Equals("winsdksetup.exe", StringComparison.OrdinalIgnoreCase) ||
+                   engineName.Equals("winsdk.exe", StringComparison.OrdinalIgnoreCase)
+            ? "Запущен штатный деинсталлятор пакета (bundle); мастер завершён пользователем (код 0)."
+            : $"Запись — пакетная установка (bundle); запущен штатный деинсталлятор {engineName} (код 0).";
+
+        return CreateEntry(item, UninstallExecutionOutcome.Uninstalled, result.ExitCode, note);
     }
 
     private async Task<IReadOnlyList<UninstallExecutionEntry>> RunElevatedBatchAsync(

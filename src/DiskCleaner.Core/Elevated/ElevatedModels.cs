@@ -36,8 +36,15 @@ public sealed class ElevatedStep
 
     public ExitCodePolicy ExitCodes { get; init; } = ExitCodePolicy.Generic;
 
+    /// <summary>
+    /// Для шага <see cref="ElevatedStepKind.RunProcess"/> с политикой
+    /// <see cref="ExitCodePolicy.Msiexec"/>: код пакетной (bundle) установки, для которой при
+    /// exit-коде «не установлено» (1605/1612) запускается штатный деинсталлятор из
+    /// <c>Package Cache\{code}</c> (FR-4.6).
+    /// </summary>
     public string? BundleProductCode { get; init; }
 
+    /// <summary>Корень, под которым ищется <c>Package Cache</c> (по умолчанию <c>%ProgramData%</c>).</summary>
     public string? PackageCacheRoot { get; init; }
 
     public RegistryHiveKind? RegistryHive { get; init; }
