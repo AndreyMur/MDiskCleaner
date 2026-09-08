@@ -26,7 +26,10 @@ public static class UninstallElevatedScenarioBuilder
                 FileName = item.Command!.FileName,
                 Arguments = item.Command.Arguments,
                 TimeoutSec = timeoutSec,
-                ExitCodes = item.IsMsiexec ? ExitCodePolicy.Msiexec : ExitCodePolicy.Generic
+                ExitCodes = item.IsMsiexec ? ExitCodePolicy.Msiexec : ExitCodePolicy.Generic,
+                BundleProductCode = item.IsMsiexec
+                    ? BundleFallbackResolver.ExtractProductCode(item.Command.Arguments)
+                    : null
             })
             .ToList();
 

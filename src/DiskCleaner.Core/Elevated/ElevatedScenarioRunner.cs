@@ -13,13 +13,19 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
 {
     private readonly DirectoryDeleter _deleter;
     private readonly ICommandRunner _commandRunner;
+    private readonly BundleFallbackResolver? _bundleResolver;
+    private readonly string? _packageCacheRoot;
 
     public ElevatedScenarioRunner(
         DirectoryDeleter? deleter = null,
-        ICommandRunner? commandRunner = null)
+        ICommandRunner? commandRunner = null,
+        BundleFallbackResolver? bundleResolver = null,
+        string? packageCacheRoot = null)
     {
         _deleter = deleter ?? new DirectoryDeleter();
         _commandRunner = commandRunner ?? new ProcessCommandRunner();
+        _bundleResolver = bundleResolver ?? new BundleFallbackResolver();
+        _packageCacheRoot = packageCacheRoot;
     }
 
     public async Task<ElevatedJournal> RunAsync(
@@ -299,6 +305,15 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
         }, cancellationToken);
 
         var meaning = ClassifyExit(step, result);
+
+        // FR-4.6: msiexec /x для пакетной (bundle) записи возвращает 1605 («это не MSI») —
+        // запускаем штатный деинсталлятор из %ProgramData%\Package Cache\{code}.
+        var fallback = await TryBundleFallback(step, meaning, cancellationToken);
+        if (fallback is not null)
+        {
+            return fallback;
+        }
+
         return new ElevatedStepResult
         {
             Id = step.Id,
@@ -311,6 +326,74 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
                 : null
         };
     }
+
+    private async Task<ElevatedStepResult?> TryBundleFallback(
+        ElevatedStep step,
+        ProcessExitMeaning meaning,
+        CancellationToken cancellationToken)
+    {
+        if (meaning != ProcessExitMeaning.NotInstalled ||
+            step.ExitCodes != ExitCodePolicy.Msiexec ||
+            _bundleResolver is null ||
+            string.IsNullOrWhiteSpace(step.BundleProductCode))
+        {
+            return null;
+        }
+
+        var fallbackCommand = _bundleResolver.TryResolveBundleUninstallCommand(
+            step.BundleProductCode,
+            step.PackageCacheRoot ?? _packageCacheRoot);
+        if (fallbackCommand is null)
+        {
+            return null;
+        }
+
+        var engineResult = await _commandRunner.RunAsync(new CommandDefinition
+        {
+            FileName = fallbackCommand.FileName,
+            Arguments = fallbackCommand.Arguments,
+            TimeoutSec = step.TimeoutSec
+        }, cancellationToken);
+
+        if (engineResult.TimedOut)
+        {
+            return new ElevatedStepResult
+            {
+                Id = step.Id,
+                Success = false,
+                ExitCode = null,
+                Error = $"Открыт мастер удаления пакета ({Path.GetFileName(fallbackCommand.FileName)}) — " +
+                        $"завершите его в течение отведённого времени; ожидание истекло."
+            };
+        }
+
+        var engineName = Path.GetFileName(fallbackCommand.FileName);
+        if (engineResult.ExitCode == 0)
+        {
+            var note = IsGuiMaster(engineName)
+                ? $"Запущен штатный деинсталлятор пакета (bundle): {engineName}. Мастер завершён пользователем (код 0)."
+                : $"Запись — пакетная установка (bundle); запущен штатный деинсталлятор {engineName} (код 0).";
+            return new ElevatedStepResult
+            {
+                Id = step.Id,
+                Success = true,
+                ExitCode = engineResult.ExitCode,
+                Note = note
+            };
+        }
+
+        return new ElevatedStepResult
+        {
+            Id = step.Id,
+            Success = false,
+            ExitCode = engineResult.ExitCode,
+            Error = $"Штатный деинсталлятор пакета {engineName} завершился с кодом {engineResult.ExitCode}."
+        };
+    }
+
+    private static bool IsGuiMaster(string engineName) =>
+        engineName.Equals("winsdksetup.exe", StringComparison.OrdinalIgnoreCase) ||
+        engineName.Equals("winsdk.exe", StringComparison.OrdinalIgnoreCase);
 
     private static ProcessExitMeaning ClassifyExit(ElevatedStep step, CommandResult result)
     {
