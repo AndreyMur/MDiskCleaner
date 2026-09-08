@@ -161,15 +161,31 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
                     originallyRunning = controller.Status == ServiceControllerStatus.Running;
                     if (originallyRunning && !TryStopService(controller))
                     {
-                        serviceNotes.Add($"Не удалось остановить службу '{step.ServiceName}' — очистка выполняется без остановки службы.");
+                        // FR-5.3: службу не удалось остановить за отведённое время — очистка
+                        // выполняется без остановки, пользователю даётся инструкция.
+                        serviceNotes.Add(
+                            $"Не удалось остановить службу '{step.ServiceName}' в течение 30 секунд — очистка выполняется без остановки службы. " +
+                            "Если очистка неполная, остановите службу Windows Update вручную (services.msc) и повторите.");
                         originallyRunning = false;
                     }
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
                 {
-                    serviceNotes.Add($"Служба '{step.ServiceName}' недоступна ({ex.Message}) — очистка выполняется без остановки службы.");
+                    // Служба не найдена/недоступна или не хватает прав на управление ей (FR-5.3):
+                    // шаг помечается инструкцией «требует админа», но очистка каталога продолжается.
+                    var rightsNote = ex is Win32Exception { NativeErrorCode: 5 }
+                        ? " Недостаточно прав для управления службой — требуется запуск с правами администратора (UAC)."
+                        : string.Empty;
+                    serviceNotes.Add(
+                        $"Служба '{step.ServiceName}' не найдена или недоступна ({ex.Message}) — очистка выполняется без остановки службы.{rightsNote}");
                     originallyRunning = false;
                 }
+            }
+            else
+            {
+                serviceNotes.Add(
+                    $"Служба '{step.ServiceName}' не найдена или недоступна для остановки — проверьте, что служба существует и процесс запущен с правами администратора (UAC). " +
+                    "Очистка каталога выполняется без остановки службы.");
             }
 
             try
@@ -305,6 +321,23 @@ public sealed class ElevatedScenarioRunner : IElevatedRunner
         }, cancellationToken);
 
         var meaning = ClassifyExit(step, result);
+
+        // FR-5.4: после успешной команды (exit-код 0) elevated-исполнитель проверяет, что объект
+        // исчез (например, hiberfil.sys после powercfg /h off). Если файл остался — шаг не
+        // считается успешным: команда выполнилась, но ожидаемого эффекта не достигла.
+        if (meaning == ProcessExitMeaning.Success &&
+            !string.IsNullOrWhiteSpace(step.VerifyPathAbsent) &&
+            (File.Exists(step.VerifyPathAbsent) || Directory.Exists(step.VerifyPathAbsent)))
+        {
+            return new ElevatedStepResult
+            {
+                Id = step.Id,
+                Success = false,
+                ExitCode = result.ExitCode,
+                Error = $"Команда завершилась с кодом 0, но объект '{step.VerifyPathAbsent}' остался на месте " +
+                        "(FR-5.4). Повторите операцию или выполните её вручную (например, powercfg /h off должен удалить hiberfil.sys)."
+            };
+        }
 
         // FR-4.6: msiexec /x для пакетной (bundle) записи возвращает 1605 («это не MSI») —
         // запускаем штатный деинсталлятор из %ProgramData%\Package Cache\{code}.

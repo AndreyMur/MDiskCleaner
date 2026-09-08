@@ -107,6 +107,12 @@ public sealed class CacheCleanerService
             return await MoveToRecycleBinAsync(item, cancellationToken);
         }
 
+        // Очистка Корзины выбранного диска (FR-5.2): штатное API оболочки Windows.
+        if (item.EmptyRecycleBinDrive is not null)
+        {
+            return await EmptyRecycleBinAsync(item, cancellationToken);
+        }
+
         var notes = new List<string>();
         var startSize = item.SizeBytes ?? await MeasurePathAsync(item.Path);
 
@@ -261,6 +267,43 @@ public sealed class CacheCleanerService
             >= 2 and <= 4 => $"{count} файла",
             _ => $"{count} файлов"
         };
+    }
+
+    private async Task<CleanEntry> EmptyRecycleBinAsync(CleanupItem item, CancellationToken cancellationToken)
+    {
+        var startSize = item.SizeBytes ?? await MeasurePathAsync(item.Path);
+        var outcome = await _deleter.DeleteAsync(item, cancellationToken);
+
+        if (outcome.Denied)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.Denied,
+                0,
+                string.Join("; ", outcome.Errors));
+        }
+
+        var stillExists = item.Path is not null && NativeDirectory.Probe(item.Path).Exists;
+        var remaining = stillExists ? await MeasurePathAsync(item.Path) : 0L;
+        var freed = Math.Max(0, startSize - remaining);
+        item.SizeBytes = stillExists ? remaining : 0;
+
+        if (outcome.Errors.Count == 0)
+        {
+            return new CleanEntry(
+                item,
+                CleanOutcome.DirectDeleted,
+                freed,
+                $"Корзина диска '{item.EmptyRecycleBinDrive}' очищена штатным API оболочки Windows (SHEmptyRecycleBin).");
+        }
+
+        var failed = string.Join("; ", outcome.Errors);
+        if (freed > 0)
+        {
+            return new CleanEntry(item, CleanOutcome.Partial, freed, $"Корзина очищена не полностью: {failed}");
+        }
+
+        return new CleanEntry(item, CleanOutcome.Error, 0, $"Не удалось очистить Корзину диска '{item.EmptyRecycleBinDrive}': {failed}");
     }
 
     private async Task<CleanEntry> MoveToRecycleBinAsync(CleanupItem item, CancellationToken cancellationToken)

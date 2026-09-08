@@ -53,6 +53,14 @@ public sealed class ElevatedStep
 
     /// <summary>Имя службы для шага ServiceCleanDirectory (например, wuauserv).</summary>
     public string? ServiceName { get; init; }
+
+    /// <summary>
+    /// Для шага <see cref="ElevatedStepKind.RunProcess"/>: после успешного выполнения команды
+    /// (exit-код по политике) elevated-исполнитель проверяет, что файл по этому пути исчез
+    /// (например, <c>hiberfil.sys</c> после <c>powercfg /h off</c>, FR-5.4). Если файл остался —
+    /// шаг не считается успешным. <c>null</c> — проверка не выполняется.
+    /// </summary>
+    public string? VerifyPathAbsent { get; init; }
 }
 
 public enum ExitCodePolicy

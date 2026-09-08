@@ -1,4 +1,5 @@
 ﻿using DiskCleaner.Core.Environment;
+using DiskCleaner.Core.Leftovers;
 using DiskCleaner.Core.Models;
 using Microsoft.Win32;
 
@@ -15,17 +16,20 @@ public sealed class SystemScanSeedsProvider
 
     private readonly Abstractions.IEnvironment _environment;
     private readonly string _windowsDirectory;
+    private readonly string? _systemRoot;
     private readonly string? _currentUserSid;
     private readonly IReadOnlyList<string>? _recycleBinDirectories;
 
     public SystemScanSeedsProvider(
         Abstractions.IEnvironment? environment = null,
         string? windowsDirectory = null,
+        string? systemRoot = null,
         string? currentUserSid = null,
         IReadOnlyList<string>? recycleBinDirectories = null)
     {
         _environment = environment ?? new EnvironmentProvider();
         _windowsDirectory = windowsDirectory ?? ResolveWindowsDirectory(_environment);
+        _systemRoot = systemRoot;
         _currentUserSid = currentUserSid;
         _recycleBinDirectories = recycleBinDirectories;
     }
@@ -127,6 +131,7 @@ public sealed class SystemScanSeedsProvider
                 continue;
             }
 
+            var driveRoot = Path.GetPathRoot(directory);
             seeds.Add(new CleanupItem
             {
                 Key = "system:recycle-bin:" + directory.TrimEnd('\\'),
@@ -136,8 +141,8 @@ public sealed class SystemScanSeedsProvider
                 Category = CleanupCategory.RecycleBin,
                 Risk = CleanupRisk.Medium,
                 Target = CleanupTarget.Directory,
-                DeleteContentsOnly = true,
-                Description = "Содержимое Корзины выбранного диска для текущего пользователя.",
+                EmptyRecycleBinDrive = driveRoot,
+                Description = "Очистка Корзины выбранного диска штатным API оболочки Windows (SHEmptyRecycleBin).",
                 Warning = "Содержимое Корзины будет удалено безвозвратно (восстановление станет невозможным)."
             });
         }
@@ -145,15 +150,38 @@ public sealed class SystemScanSeedsProvider
 
     private void AddHibernationSeed(ICollection<CleanupItem> seeds)
     {
-        var systemDriveRoot = Path.GetPathRoot(_windowsDirectory);
+        var systemDriveRoot = _systemRoot ?? Path.GetPathRoot(_windowsDirectory);
         if (string.IsNullOrEmpty(systemDriveRoot))
         {
             return;
         }
 
         var hiberfil = Path.Combine(systemDriveRoot, "hiberfil.sys");
+        var powerCfg = Path.Combine(System.Environment.SystemDirectory, "powercfg.exe");
+
+        // Обратимость (FR-5.4): когда файл гибернации отсутствует, предлагается обратная
+        // операция powercfg /h on (вернуть гибернацию/файл). Оба шага — CommandOnly в
+        // админ-пачке; выбор всегда явный (ничего не выполняется «по умолчанию»).
         if (!File.Exists(hiberfil))
         {
+            seeds.Add(new CleanupItem
+            {
+                Key = "system:hibernation:on",
+                Path = null,
+                DisplayName = "Включить гибернацию (hiberfil.sys)",
+                GroupName = "Системная очистка",
+                Category = CleanupCategory.SystemFile,
+                Risk = CleanupRisk.Medium,
+                Target = CleanupTarget.File,
+                RequiresAdmin = true,
+                CommandOnly = true,
+                AllowDirectDelete = false,
+                CleanCommand = "powercfg /h on",
+                CleanCommandFile = powerCfg,
+                CleanCommandArgs = "/h on",
+                Description = "Обратная операция: создаёт файл гибернации hiberfil.sys на системном диске.",
+                Warning = "Включает гибернацию (создаётся hiberfil.sys). Требуются права администратора (UAC). Только по явному выбору."
+            });
             return;
         }
 
@@ -181,9 +209,10 @@ public sealed class SystemScanSeedsProvider
             CommandOnly = true,
             AllowDirectDelete = false,
             CleanCommand = "powercfg /h off",
-            CleanCommandFile = Path.Combine(System.Environment.SystemDirectory, "powercfg.exe"),
+            CleanCommandFile = powerCfg,
             CleanCommandArgs = "/h off",
             SizeBytes = sizeBytes,
+            VerifyPathAbsent = hiberfil,
             Description = "Файл гибернации hiberfil.sys (файл на системном диске) будет удалён.",
             Warning = "Отключает гибернацию; быстрый запуск сохраняется. Операция обратима (powercfg /h on). Требуются права администратора (UAC)."
         });
@@ -191,26 +220,78 @@ public sealed class SystemScanSeedsProvider
 
     private void AddWindowsOldSeed(ICollection<CleanupItem> seeds)
     {
-        var windowsOld = Path.Combine(Path.GetPathRoot(_windowsDirectory) ?? _windowsDirectory, "Windows.old");
-        if (!Directory.Exists(windowsOld))
+        // Каталоги предыдущей установки Windows (Windows.old, Windows.old.000 и т.п., FR-5.5)
+        // ищутся на системном диске: корень = родитель Program Files (в фикстурах — временный корень,
+        // на реальной машине — C:\ — как в движке остатков модуля 03).
+        var scanRoot = WindowsOldSystemRoot();
+        if (scanRoot is null)
         {
             return;
         }
 
-        seeds.Add(new CleanupItem
+        IReadOnlyList<string> directories;
+        try
         {
-            Key = "system:windows-old",
-            Path = Path.GetFullPath(windowsOld),
-            DisplayName = "Предыдущая установка Windows (Windows.old)",
-            GroupName = "Системная очистка",
-            Category = CleanupCategory.SystemFile,
-            Risk = CleanupRisk.High,
-            Target = CleanupTarget.Directory,
-            DeleteContentsOnly = true,
-            RequiresAdmin = true,
-            Description = "Файлы предыдущей установки Windows. Возврат к предыдущей версии станет невозможен.",
-            Warning = "Удаление Windows.old делает невозможным откат к предыдущей версии Windows. Требуются права администратора (UAC)."
-        });
+            directories = Directory.EnumerateDirectories(scanRoot)
+                .Where(name => Path.GetFileName(name).StartsWith(
+                    LeftoverRuleEngine.WindowsOldNamePrefix,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return;
+        }
+
+        foreach (var directory in directories)
+        {
+            var name = Path.GetFileName(directory);
+            var measurement = LeftoverDirectoryMeasurer.Measure(directory);
+            seeds.Add(new CleanupItem
+            {
+                Key = name.Equals("Windows.old", StringComparison.OrdinalIgnoreCase)
+                    ? "system:windows-old"
+                    : "system:windows-old:" + name,
+                Path = Path.GetFullPath(directory),
+                DisplayName = "Предыдущая установка Windows (" + name + ")",
+                GroupName = "Системная очистка",
+                Category = CleanupCategory.SystemFile,
+                Risk = CleanupRisk.High,
+                Target = CleanupTarget.Directory,
+                RequiresAdmin = true,
+                SizeBytes = measurement.SizeBytes,
+                FileCount = measurement.FileCount,
+                Description =
+                    $"Файлы предыдущей установки Windows ({name}). Удаляются только штатными средствами " +
+                    $"(Storage Sense/cleanmgr/DISM, {LeftoverRuleEngine.WindowsOldRemovalMethod}) или с админ-правами (UAC) по явному выбору.",
+                Warning =
+                    "Удаление делает невозможным откат к предыдущей версии Windows. Каталог удаляется целиком, " +
+                    "только с админ-правами (UAC) и только по явному выбору (FR-5.5)."
+            });
+        }
+    }
+
+    /// <summary>
+    /// Системный диск для поиска <c>Windows.old*</c>: родитель Program Files (в фикстурах тестов —
+    /// временный корень, на реальной машине — корень системного диска <c>C:\</c>).
+    /// </summary>
+    private string? WindowsOldSystemRoot()
+    {
+        var programFiles = _environment.ProgramFiles;
+        if (string.IsNullOrWhiteSpace(programFiles))
+        {
+            return null;
+        }
+
+        try
+        {
+            var trimmed = Path.TrimEndingDirectorySeparator(Path.GetFullPath(programFiles));
+            return Path.GetDirectoryName(trimmed);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     private void AddUserDataSeeds(ICollection<CleanupItem> seeds)

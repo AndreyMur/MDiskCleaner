@@ -62,24 +62,41 @@ public sealed class PlanExecutor
             return dryReport;
         }
 
+        // Deny-список «никогда не удалять вручную» (FR-5.6): защита на уровне исполнителя. Объект
+        // из deny-списка не исполняется ни локально, ни через админ-пачку (не тратит UAC-подъём) —
+        // DirectoryDeleter остаётся последней линией защиты для остальных путей вызова.
+        var protectedLeaves = leaves
+            .Where(l => !string.IsNullOrWhiteSpace(l.Path) && DenyList.IsProtectedPath(l.Path))
+            .ToList();
+        var remainingLeaves = leaves.Except(protectedLeaves).ToList();
+
         // Предварительная проверка занятости перед удалением (FR-5.7): один кэшируемый на время
         // плана снимок процессов; при разделяемом снимке (processSnapshotCache) он одинаков для
         // всех исполнителей, работающих над одним планом.
         var runningProcesses = GetPlanProcesses();
-        _inUseDetector.MarkInUse(leaves, runningProcesses);
+        _inUseDetector.MarkInUse(remainingLeaves, runningProcesses);
 
-        var inUseLeaves = leaves.Where(l => l.InUse).ToList();
-        var availableLeaves = leaves
+        var inUseLeaves = remainingLeaves.Where(l => l.InUse).ToList();
+        var availableLeaves = remainingLeaves
             .Where(l => !l.InUse)
             .Where(l => !(l.Category == CleanupCategory.UserData && !l.MoveToRecycleBin))
             .ToList();
-        var blockedUserDataLeaves = leaves
+        var blockedUserDataLeaves = remainingLeaves
             .Where(l => l.Category == CleanupCategory.UserData && !l.MoveToRecycleBin)
             .ToList();
 
-        var progressState = new ProgressState(leaves.Count, progress);
+        var progressState = new ProgressState(remainingLeaves.Count, progress);
 
         var entries = new List<CleanEntry>(leaves.Count);
+
+        foreach (var protectedLeaf in protectedLeaves)
+        {
+            entries.Add(new CleanEntry(
+                protectedLeaf,
+                CleanOutcome.Denied,
+                0,
+                DenyList.Describe(protectedLeaf.Path!)));
+        }
 
         foreach (var inUseLeaf in inUseLeaves)
         {
@@ -286,6 +303,11 @@ public sealed class PlanExecutor
 
     private static string NoteForDryRun(CleanupItem leaf)
     {
+        if (!string.IsNullOrWhiteSpace(leaf.Path) && DenyList.IsProtectedPath(leaf.Path))
+        {
+            return $"Защищено deny-списком: не будет удалено.";
+        }
+
         if (leaf.InUse)
         {
             return $"Будет пропущено. {InUseMessages.SkippedNote(leaf)}";
@@ -294,6 +316,11 @@ public sealed class PlanExecutor
         if (leaf.MoveToRecycleBin)
         {
             return "Будет перемещено в Корзину (не удаляется безвозвратно)";
+        }
+
+        if (leaf.EmptyRecycleBinDrive is not null)
+        {
+            return "Будет очищена Корзина диска " + leaf.EmptyRecycleBinDrive;
         }
 
         return leaf.Warning is null ? "Будет очищено" : $"Будет очищено. {leaf.Warning}";

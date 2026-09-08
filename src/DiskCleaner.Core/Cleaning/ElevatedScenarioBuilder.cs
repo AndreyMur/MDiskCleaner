@@ -23,7 +23,8 @@ public sealed class ElevatedScenarioBuilder
                 ExitCodes = IsMsiexecCommand(item.CleanCommandFile) ? ExitCodePolicy.Msiexec : ExitCodePolicy.Generic,
                 RegistryHive = RegistryHiveOf(item),
                 RegistrySubKeyPath = item.RegistryDeletePath is null ? null : RegistryDeletePathBuilder.RelativePathOf(item.RegistryDeletePath),
-                ServiceName = item.ServiceName
+                ServiceName = item.ServiceName,
+                VerifyPathAbsent = item.VerifyPathAbsent
             })
             .ToList();
 
@@ -69,6 +70,17 @@ public sealed class ElevatedScenarioBuilder
 
         if (!result.Success)
         {
+            // Отказ удаления из-за deny-списка (FR-5.6) — тот же статус Denied, что и в
+            // локальном контексте: DirectoryDeleter проверяет защиту и внутри elevated-процесса.
+            if (item.Path is not null && DenyList.IsProtectedPath(item.Path))
+            {
+                return new CleanEntry(
+                    item,
+                    CleanOutcome.Denied,
+                    result.FreedBytes,
+                    result.Error ?? DenyList.Describe(item.Path));
+            }
+
             return new CleanEntry(
                 item,
                 result.FreedBytes > 0 ? CleanOutcome.Partial : CleanOutcome.Error,

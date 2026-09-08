@@ -40,6 +40,11 @@ public static class CleanActionJournal
 
     private static string OperationOf(CleanupItem item)
     {
+        if (item.EmptyRecycleBinDrive is not null)
+        {
+            return "empty-recycle-bin";
+        }
+
         if (item.MoveToRecycleBin)
         {
             return "move-to-recycle-bin";
