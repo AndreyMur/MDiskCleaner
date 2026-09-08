@@ -32,19 +32,22 @@ public sealed class UninstallPlanService
     private readonly InstalledAppAnalyzer _analyzer;
     private readonly IUninstallFolderSizeProvider? _folderSize;
     private readonly IWindowsFirstRunDateProvider _firstRunDate;
+    private readonly UninstallDependencyCatalog _dependencyCatalog;
 
     public UninstallPlanService(
         UninstallRegistryService? registry = null,
         UninstallStringParser? parser = null,
         InstalledAppAnalyzer? analyzer = null,
         IUninstallFolderSizeProvider? folderSize = null,
-        IWindowsFirstRunDateProvider? firstRunDate = null)
+        IWindowsFirstRunDateProvider? firstRunDate = null,
+        UninstallDependencyCatalog? dependencyCatalog = null)
     {
         _registry = registry;
         _parser = parser ?? new UninstallStringParser();
         _firstRunDate = firstRunDate ?? new RegistryWindowsFirstRunDateProvider();
         _folderSize = folderSize ?? new DirectoryScannerFolderSizeProvider();
         _analyzer = analyzer ?? new InstalledAppAnalyzer(() => _firstRunDate.GetFirstRunDate());
+        _dependencyCatalog = dependencyCatalog ?? new UninstallDependencyCatalog();
     }
 
     /// <summary>Строит план из реестра Uninstall (три ветки). Требует <see cref="UninstallRegistryService"/>.</summary>
@@ -96,6 +99,7 @@ public sealed class UninstallPlanService
                 RequiresAdmin = app.RequiresAdmin,
                 Marks = BuildMarks(item),
                 Note = item.Note,
+                DependencyImpactNames = _dependencyCatalog.FindAffectedProducts(apps, app),
                 IsEnabled = false
             });
         }

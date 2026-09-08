@@ -8,6 +8,12 @@ public sealed class UninstallPlannerOptions
 
     public bool IncludeOrphanedRegistryEntries { get; set; } = true;
 
+    /// <summary>
+    /// Предлагать осиротевшие системные компоненты (<c>SystemComponent=1</c>). По умолчанию false —
+    /// такие записи не затрагиваются без явного согласия пользователя (FR-4.13).
+    /// </summary>
+    public bool IncludeSystemComponentOrphans { get; set; }
+
     public Func<string, bool> PathExists { get; set; } = static path =>
         Directory.Exists(path) || File.Exists(path);
 }
@@ -17,17 +23,20 @@ public sealed class UninstallPlannerService
     private readonly UninstallRegistryService _registry;
     private readonly UninstallStringParser _parser;
     private readonly BundleFallbackResolver _bundleResolver;
+    private readonly UninstallDependencyCatalog _dependencyCatalog;
     private readonly string? _programDataRoot;
 
     public UninstallPlannerService(
         UninstallRegistryService? registry = null,
         UninstallStringParser? parser = null,
         BundleFallbackResolver? bundleResolver = null,
+        UninstallDependencyCatalog? dependencyCatalog = null,
         string? programDataRoot = null)
     {
         _registry = registry ?? new UninstallRegistryService();
         _parser = parser ?? new UninstallStringParser();
         _bundleResolver = bundleResolver ?? new BundleFallbackResolver();
+        _dependencyCatalog = dependencyCatalog ?? new UninstallDependencyCatalog();
         _programDataRoot = programDataRoot;
     }
 
@@ -65,6 +74,7 @@ public sealed class UninstallPlannerService
             var effective = ResolveBundleFallback(app, command);
             var hasInstallFolder = !string.IsNullOrWhiteSpace(app.InstallLocation) &&
                                    opts.PathExists(app.InstallLocation);
+            var dependencyImpacts = _dependencyCatalog.FindAffectedProducts(apps, app);
 
             seeds.Add(new CleanupItem
             {
@@ -75,7 +85,7 @@ public sealed class UninstallPlannerService
                 Category = CleanupCategory.InstalledApp,
                 Risk = app.RequiresAdmin ? CleanupRisk.Medium : CleanupRisk.Medium,
                 Description = BuildDescription(app),
-                Warning = BuildWarning(item, effective.Command),
+                Warning = BuildWarning(item, effective.Command, dependencyImpacts),
                 CleanCommand = effective.Command.DisplayText,
                 CleanCommandFile = effective.Command.FileName,
                 CleanCommandArgs = effective.Command.Arguments,
@@ -104,38 +114,16 @@ public sealed class UninstallPlannerService
         UninstallPlannerOptions opts,
         List<CleanupItem> seeds)
     {
-        foreach (var app in apps)
+        var scanOptions = new UninstallOrphanRegistryOptions
         {
-            if (app.IsSystemComponent || string.IsNullOrWhiteSpace(app.DisplayName))
-            {
-                continue;
-            }
+            PathExists = opts.PathExists,
+            IncludeSystemComponents = opts.IncludeSystemComponentOrphans
+        };
 
-            var locationMissing = !string.IsNullOrWhiteSpace(app.InstallLocation) &&
-                                  !opts.PathExists(app.InstallLocation);
-            var uninstallerMissing = !string.IsNullOrWhiteSpace(app.UninstallString) &&
-                                     !InstalledAppPathExists(app.UninstallString, opts.PathExists);
-            if (!locationMissing && !uninstallerMissing)
-            {
-                continue;
-            }
-
-            seeds.Add(new CleanupItem
-            {
-                Key = $"orphan-reg:{app.ScopeKey}:{app.ProductCode}",
-                Path = null,
-                DisplayName = app.DisplayName,
-                GroupName = "Осиротевшие записи реестра",
-                Category = CleanupCategory.Leftover,
-                Risk = app.RequiresAdmin ? CleanupRisk.Medium : CleanupRisk.Low,
-                Description = "Запись Uninstall ссылается на отсутствующие файлы/каталоги.",
-                Warning = "Будет удалена только запись реестра. Файлы не затрагиваются.",
-                RequiresAdmin = app.RequiresAdmin,
-                RegistryDeletePath = RegistryDeletePathBuilder.Build(app),
-                CommandOnly = false,
-                AllowDirectDelete = false
-            });
-        }
+        // FR-4.13: только записи под Software\...\Uninstall (LM) и WOW6432Node; SystemComponent=1 —
+        // без явного согласия не предлагается; каждый шаг — только по подтверждению.
+        var orphanItems = new UninstallOrphanRegistryScanner().BuildCleanupItems(apps, scanOptions);
+        seeds.AddRange(orphanItems);
     }
 
     private (UninstallCommand Command, bool IsBundle) ResolveBundleFallback(
@@ -160,17 +148,6 @@ public sealed class UninstallPlannerService
                 "/uninstall",
                 Silent: false),
             true);
-    }
-
-    private static bool InstalledAppPathExists(string uninstallString, Func<string, bool> exists)
-    {
-        var parsed = new UninstallStringParser().Parse(uninstallString);
-        if (parsed is null || parsed.Kind == UninstallerKind.Msi)
-        {
-            return true;
-        }
-
-        return exists(parsed.FileName);
     }
 
     private static string BuildDescription(InstalledApp app)
@@ -202,9 +179,17 @@ public sealed class UninstallPlannerService
     private static string BuildReviewReason(InstalledAppAnalysis item) =>
         item.Note ?? "Запись помечена для ручной проверки.";
 
-    private static string BuildWarning(InstalledAppAnalysis item, UninstallCommand command)
+    private static string BuildWarning(
+        InstalledAppAnalysis item,
+        UninstallCommand command,
+        IReadOnlyList<string> dependencyImpacts)
     {
         var warnings = new List<string> { $"Будет запущен деинсталлятор: {command.DisplayText}" };
+
+        if (dependencyImpacts.Count > 0)
+        {
+            warnings.Add($"Удаление может затронуть: {string.Join(", ", dependencyImpacts)}.");
+        }
 
         if (item.IsOldVersion)
         {
