@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace DiskCleaner.Core.Uninstall;
@@ -8,9 +9,17 @@ public enum AppAnomalyKind
     OldVersion,
     SuspiciousPublisher,
     SuspiciousDomain,
+    SuspiciousInstallDate,
     ReviewManually
 }
 
+/// <summary>
+/// Результат анализа одной записи установленного ПО (FR-4.2/4.3): приложенная запись
+/// <see cref="App"/>, найденные аномалии и человекочитаемое пояснение. Для участников
+/// группы дублей дополнительно заполняются данные «какую запись держать» (самую свежую)
+/// — <see cref="KeepProductCode"/>, версия и дата установки этой записи, чтобы рекомендация
+/// «держать последнюю, удалять старые» была конкретной (FR-4.2).
+/// </summary>
 public sealed record InstalledAppAnalysis(
     InstalledApp App,
     IReadOnlyList<AppAnomalyKind> Anomalies,
@@ -22,7 +31,23 @@ public sealed record InstalledAppAnalysis(
 
     public bool NeedsReview => Anomalies.Contains(AppAnomalyKind.ReviewManually)
         || Anomalies.Contains(AppAnomalyKind.SuspiciousPublisher)
-        || Anomalies.Contains(AppAnomalyKind.SuspiciousDomain);
+        || Anomalies.Contains(AppAnomalyKind.SuspiciousDomain)
+        || Anomalies.Contains(AppAnomalyKind.SuspiciousInstallDate);
+
+    /// <summary>Семейство дублей (нормализованное DisplayName), если запись входит в группу из ≥ 2 записей.</summary>
+    public string? DuplicateFamilyName { get; init; }
+
+    /// <summary>Сколько установок одного продукта найдено (для записей-дублей).</summary>
+    public int DuplicateGroupCount { get; init; }
+
+    /// <summary>ProductCode записи, которую рекомендуется оставить (самую свежую). Заполнен у всех членов группы.</summary>
+    public string? KeepProductCode { get; init; }
+
+    /// <summary>DisplayVersion записи, которую рекомендуется оставить (для пометки рекомендации, FR-4.2).</summary>
+    public string? KeepDisplayVersion { get; init; }
+
+    /// <summary>InstallDate записи, которую рекомендуется оставить (для пометки рекомендации, FR-4.2).</summary>
+    public string? KeepInstallDate { get; init; }
 }
 
 public sealed partial class InstalledAppAnalyzer
@@ -37,10 +62,19 @@ public sealed partial class InstalledAppAnalyzer
         "activation"
     };
 
+    /// <summary>Источник даты первой загрузки Windows (для аномалии «InstallDate = первому запуску», FR-4.3).</summary>
+    private readonly Func<DateTime?>? _windowsFirstRunUtcProvider;
+
+    public InstalledAppAnalyzer(Func<DateTime?>? windowsFirstRunUtcProvider = null)
+    {
+        _windowsFirstRunUtcProvider = windowsFirstRunUtcProvider;
+    }
+
     public IReadOnlyList<InstalledAppAnalysis> Analyze(IEnumerable<InstalledApp> apps)
     {
         var list = apps.ToList();
         var membership = BuildDuplicateMembership(list);
+        var windowsFirstRun = _windowsFirstRunUtcProvider?.Invoke();
         var result = new List<InstalledAppAnalysis>(list.Count);
 
         foreach (var app in list)
@@ -48,16 +82,30 @@ public sealed partial class InstalledAppAnalyzer
             var anomalies = new List<AppAnomalyKind>();
             var notes = new List<string>();
 
-            if (membership.TryGetValue(app.ProductCode, out var member) &&
-                member.Group.Items.Count > 1)
+            DuplicateGroup? group = null;
+            if (membership.TryGetValue(app.ProductCode, out var member))
+            {
+                group = member.Group;
+            }
+
+            if (group is { Items.Count: > 1 })
             {
                 anomalies.Add(AppAnomalyKind.Duplicate);
-                notes.Add($"Найдено {member.Group.Items.Count} установки одного продукта (семейство «{NormalizeName(app.DisplayName)}»).");
+                notes.Add($"Найдено {group.Items.Count} установки одного продукта (семейство «{NormalizeName(app.DisplayName)}»).");
 
-                if (member.Group.KeepProductCode != app.ProductCode)
+                if (group.KeepProductCode != app.ProductCode)
                 {
                     anomalies.Add(AppAnomalyKind.OldVersion);
-                    notes.Add("Рекомендуется удалить старую версию, оставить самую свежую.");
+                    var keep = group.Items.FirstOrDefault(i => i.ProductCode == group.KeepProductCode);
+                    notes.Add(
+                        $"Рекомендуется удалить эту старую версию (версия {VersionText(app.DisplayVersion)}, установлена {FormatDate(app.InstallDate)}); " +
+                        $"оставить самую свежую: версия {VersionText(keep?.DisplayVersion)} (установлена {FormatDate(keep?.InstallDate)}).");
+                }
+                else
+                {
+                    notes.Add(
+                        $"Это самая свежая установка семейства (версия {VersionText(app.DisplayVersion)}, " +
+                        $"установлена {FormatDate(app.InstallDate)}) — рекомендуется её оставить.");
                 }
             }
 
@@ -73,8 +121,18 @@ public sealed partial class InstalledAppAnalyzer
                 notes.Add(nameReason);
             }
 
+            if (windowsFirstRun is { } firstRun &&
+                IsSameDay(app.InstallDate, firstRun))
+            {
+                anomalies.Add(AppAnomalyKind.SuspiciousInstallDate);
+                notes.Add(
+                    $"Дата установки ({FormatDate(app.InstallDate)}) совпадает с датой первой загрузки Windows — " +
+                    "возможно, приложение появилось при первом включении машины; рекомендуется проверить вручную.");
+            }
+
             var requiresReview = anomalies.Contains(AppAnomalyKind.SuspiciousPublisher)
-                || anomalies.Contains(AppAnomalyKind.SuspiciousDomain);
+                || anomalies.Contains(AppAnomalyKind.SuspiciousDomain)
+                || anomalies.Contains(AppAnomalyKind.SuspiciousInstallDate);
             if (requiresReview)
             {
                 anomalies.Add(AppAnomalyKind.ReviewManually);
@@ -83,7 +141,18 @@ public sealed partial class InstalledAppAnalyzer
             result.Add(new InstalledAppAnalysis(
                 app,
                 anomalies.Distinct().ToList(),
-                notes.Count == 0 ? null : string.Join(" ", notes)));
+                notes.Count == 0 ? null : string.Join(" ", notes))
+            {
+                DuplicateFamilyName = group is { Items.Count: > 1 } ? NormalizeName(app.DisplayName) : null,
+                DuplicateGroupCount = group?.Items.Count ?? 0,
+                KeepProductCode = group is { Items.Count: > 1 } ? group.KeepProductCode : null,
+                KeepDisplayVersion = group is { Items.Count: > 1 } && group.KeepProductCode is { } keepCode
+                    ? group.Items.FirstOrDefault(i => i.ProductCode == keepCode)?.DisplayVersion
+                    : null,
+                KeepInstallDate = group is { Items.Count: > 1 } && group.KeepProductCode is { } keepDateCode
+                    ? group.Items.FirstOrDefault(i => i.ProductCode == keepDateCode)?.InstallDate
+                    : null
+            });
         }
 
         return result;
@@ -270,6 +339,41 @@ public sealed partial class InstalledAppAnalyzer
                !trimmed.Contains(' ') &&
                !trimmed.Contains("\\") &&
                !trimmed.Contains('/');
+    }
+
+    private static bool IsSameDay(string? installDate, DateTime firstRun)
+    {
+        if (string.IsNullOrWhiteSpace(installDate))
+        {
+            return false;
+        }
+
+        if (installDate.Length == 8 &&
+            DateTime.TryParseExact(installDate, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return date.Date == firstRun.Date;
+        }
+
+        return false;
+    }
+
+    private static string VersionText(string? version) =>
+        string.IsNullOrWhiteSpace(version) ? "не указана" : version;
+
+    private static string FormatDate(string? installDate)
+    {
+        if (string.IsNullOrWhiteSpace(installDate))
+        {
+            return "не указана";
+        }
+
+        if (installDate.Length == 8 &&
+            DateTime.TryParseExact(installDate, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return date.ToString("yyyy-MM-dd");
+        }
+
+        return installDate;
     }
 
     private static string NormalizePublisher(string? publisher)
