@@ -68,6 +68,10 @@
                             Command="{Binding OpenLeftoverScanCommand}"
                             ToolTip="Открыть экран «Остатки удалённых программ»: группы остатков с основаниями, включение чекбоксами (по умолчанию выключено), пообъектное подтверждение опасных объектов, dry-run и исключения (FR-3.2–3.8)." />
                     <Button Style="{StaticResource ToolbarButton}"
+                            Content="Деинсталляция"
+                            Command="{Binding OpenUninstallerCommand}"
+                            ToolTip="Открыть экран «Деинсталляция и зачистка»: список ПО с колонками и пометками (дубли/старые версии/«Проверить вручную»), выбор без предвыбора, пошаговое подтверждение, массовое удаление Windows SDK, осиротевшие записи Uninstall (FR-4.1–4.13)." />
+                    <Button Style="{StaticResource ToolbarButton}"
                             Content="Отмена"
                             Command="{Binding CancelCommand}" />
                     <Button Style="{StaticResource ToolbarButton}"
