@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using DiskCleaner.Core.Elevated;
 using DiskCleaner.Core.Models;
@@ -43,8 +44,12 @@ public class ElevatedProcessE2eTests
             CreateNoWindow = true
         };
 
-        using var process = Process.Start(startInfo);
-        Assert.NotNull(process);
+        using var process = StartOrSkip(exePath, startInfo);
+        if (process is null)
+        {
+            return;
+        }
+
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         await process.WaitForExitAsync(timeout.Token);
 
@@ -56,6 +61,20 @@ public class ElevatedProcessE2eTests
         Assert.Equal("delete1", result.Id);
         Assert.True(result.Success);
         Assert.Equal(700, result.FreedBytes);
+    }
+
+    private static Process? StartOrSkip(string exePath, ProcessStartInfo startInfo)
+    {
+        try
+        {
+            return Process.Start(startInfo);
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 740)
+        {
+            // manifest requireAdministrator (FR-5.10/5.11): запуск без повышения невозможен —
+            // интеграционный тест исполняется только из elevated-сессии (эталонная машина).
+            return null;
+        }
     }
 
     private static string? FindElevatedExe()
