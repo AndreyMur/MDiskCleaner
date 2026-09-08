@@ -236,6 +236,40 @@ public class UninstallRegistryTests
     }
 
     [Fact]
+    public void ReadInstalledApps_DetectsWindowsInstallerByQuietUninstallString()
+    {
+        if (!IsWindows())
+        {
+            return;
+        }
+
+        var guid = Guid.NewGuid().ToString("N");
+        var branchRelative = $@"Software\DiskCleaner.Tests\{guid}\Uninstall";
+
+        using var uninstall = Registry.CurrentUser.CreateSubKey(branchRelative);
+        using (var product = uninstall.CreateSubKey("{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}"))
+        {
+            product.SetValue("DisplayName", "Только QuietUninstallString");
+            product.SetValue("UninstallString", "\"C:\\Tools\\svc\\uninstall.exe\"");
+            product.SetValue("QuietUninstallString", "MsiExec.exe /X{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}");
+        }
+
+        try
+        {
+            var service = new UninstallRegistryService(
+                new FakeEnvironment(new TempRoot()),
+                branches: [new RegistryBranchSpec(RegistryHiveKind.CurrentUser, branchRelative)]);
+
+            var app = Assert.Single(service.ReadInstalledApps());
+            Assert.True(app.IsWindowsInstaller);
+        }
+        finally
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(branchRelative, throwOnMissingSubKey: false);
+        }
+    }
+
+    [Fact]
     public async Task LocalRegistryCleaner_DeletesHkcuOrphanKey()
     {
         if (!IsWindows())
