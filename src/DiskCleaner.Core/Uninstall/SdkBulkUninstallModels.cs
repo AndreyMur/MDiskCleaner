@@ -91,6 +91,12 @@ public sealed class SdkBulkUninstallReport
 
     public bool FullyRemoved => RemainingProductCodes.Count == 0;
 
+    /// <summary>
+    /// Нужно ли предложить перезагрузку после массового удаления (FR-4.12): хотя бы один компонент
+    /// вернул exit-код 3010. Перезагрузка не выполняется принудительно — только запрос пользователю.
+    /// </summary>
+    public bool NeedsReboot => Components.Any(c => c.Outcome == UninstallExecutionOutcome.RebootRequired);
+
     public int OkCount => Components.Count(c => c.IsOk);
 
     public int FailedCount => Components.Count(c => !c.IsOk);

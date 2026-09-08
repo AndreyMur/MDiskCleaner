@@ -75,6 +75,20 @@ public sealed class UninstallPlanItem
     /// <summary>Человекочитаемое пояснение/рекомендация (версии и даты установки для дублей, FR-4.2).</summary>
     public string? Note { get; init; }
 
+    /// <summary>
+    /// Названия ещё установленных продуктов, на которые может повлиять удаление этого шага —
+    /// статический список известных зависимостей (VS Build Tools 2019 → SDK 19041, §7, FR-4.11).
+    /// </summary>
+    public IReadOnlyList<string> DependencyImpactNames { get; init; } = Array.Empty<string>();
+
+    /// <summary>Есть ли предупреждение «удаление может затронуть X» (§7).</summary>
+    public bool HasDependencyImpacts => DependencyImpactNames.Count > 0;
+
+    /// <summary>Текст предупреждения о зависимостях для подтверждения шага (§7, FR-4.11).</summary>
+    public string? DependencyImpactText => HasDependencyImpacts
+        ? $"Удаление может затронуть: {string.Join(", ", DependencyImpactNames)}."
+        : null;
+
     /// <summary>Включён ли шаг пользователем. По умолчанию false — никогда не предвыбор (FR-4.2).</summary>
     public bool IsEnabled { get; set; }
 }

@@ -83,6 +83,15 @@ public sealed class UninstallExecutionReport
     public int UninstalledCount => Entries.Count(e =>
         e.Outcome is UninstallExecutionOutcome.Uninstalled or UninstallExecutionOutcome.RebootRequired);
 
+    /// <summary>Сколько записей завершились с признаком «требуется перезагрузка» (MSI-код 3010).</summary>
+    public int RebootRequiredCount => Entries.Count(e => e.Outcome == UninstallExecutionOutcome.RebootRequired);
+
+    /// <summary>
+    /// Нужно ли предложить перезагрузку после операции (FR-4.12): хотя бы одна запись вернула
+    /// exit-код 3010. Перезагрузка не выполняется принудительно — только запрос пользователю.
+    /// </summary>
+    public bool NeedsReboot => RebootRequiredCount > 0;
+
     /// <summary>Сколько записей завершилось как «не ошибка» (включая идемпотентные исходы 1605/1612/нет файла).</summary>
     public int OkCount => Entries.Count(e => e.IsOk);
 
