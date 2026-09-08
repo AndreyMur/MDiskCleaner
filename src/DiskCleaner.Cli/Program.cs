@@ -368,7 +368,7 @@ public static class Program
         Console.WriteLine(
             $"Освобождено: {CleanReportFormatter.FormatBytes(report.TotalFreedBytes)}. " +
             $"Успешно: {report.Entries.Count(e => e.Outcome is CleanOutcome.NativeCleaned or CleanOutcome.DirectDeleted or CleanOutcome.CommandOnlyCleaned or CleanOutcome.Uninstalled or CleanOutcome.RegistryEntryDeleted or CleanOutcome.MovedToRecycleBin)}. " +
-            $"С ошибками/частично: {report.FailedItems}. Отложено (используется): {report.DeferredItems}.");
+            $"С ошибками: {report.FailedItems}. Частично: {report.PartialItems}. Отложено (используется): {report.DeferredItems}.");
     }
 
     private static void WriteReport(CliOptions options, ReportDocument doc)

@@ -23,6 +23,7 @@ public static class Program
             var journal = await runner.RunAsync(scenario);
             ElevatedJson.WriteJournal(journalPath, journal);
 
+            AuditSteps(scenario, journal);
             Serilog.Log.Information(
                 "DiskCleaner.Elevated finished: {Ok}/{Total} steps succeeded",
                 journal.Results.Count(r => r.Success),
@@ -57,5 +58,33 @@ public static class Program
         }
 
         return File.Exists(scenario) && journal.Length > 0;
+    }
+
+    /// <summary>
+    /// Журнал каждого шага elevated-сценария (FR-5.13): время, объект, размер, тип операции,
+    /// результат, exit-код, ошибка — пишется в общий журнал %LOCALAPPDATA%\DiskCleaner\logs.
+    /// </summary>
+    private static void AuditSteps(ElevatedScenario scenario, ElevatedJournal journal)
+    {
+        for (var i = 0; i < scenario.Steps.Count && i < journal.Results.Count; i++)
+        {
+            var step = scenario.Steps[i];
+            var result = journal.Results[i];
+            var objectName = step.Path
+                ?? step.FileName
+                ?? step.RegistrySubKeyPath
+                ?? step.Id;
+
+            Serilog.Log.Information(
+                "Elevated action: time={Time:yyyy-MM-dd HH:mm:ss} object={Object} sizeBytes={Size} op={Operation} result={Outcome} exitCode={ExitCode} freedBytes={Freed} error={Error}",
+                DateTime.Now,
+                objectName,
+                result.FreedBytes,
+                step.Kind,
+                result.Success ? "success" : "failed",
+                result.ExitCode,
+                result.FreedBytes,
+                result.Error ?? result.Note);
+        }
     }
 }

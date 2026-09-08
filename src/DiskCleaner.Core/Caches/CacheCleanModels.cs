@@ -24,7 +24,8 @@ public sealed record CleanEntry(
     CleanupItem Item,
     CleanOutcome Outcome,
     long FreedBytes,
-    string? Note);
+    string? Note,
+    int? ExitCode = null);
 
 public sealed record CleanProgress(
     string CurrentName,
@@ -50,7 +51,17 @@ public sealed class CleanReport
 
     public long TotalFreedBytes => Entries.Sum(e => Math.Max(0, e.FreedBytes));
 
-    public int FailedItems => Entries.Count(e => e.Outcome == CleanOutcome.Error || e.Outcome == CleanOutcome.Partial);
+    /// <summary>
+    /// Шаги, завершившиеся ошибкой. «Частично» (FR-5.9) и «пропущен» не считаются ошибками плана:
+    /// частично очищенный шаг — легитимный результат с перечислением неудалённых файлов.
+    /// </summary>
+    public int FailedItems => Entries.Count(e => e.Outcome == CleanOutcome.Error);
+
+    /// <summary>Шаги со статусом «частично»: часть файлов удалена, часть заблокирована/недоступна (FR-5.9).</summary>
+    public int PartialItems => Entries.Count(e => e.Outcome == CleanOutcome.Partial);
+
+    /// <summary>Шаги, пропущенные из-за занятости процессами (IN_USE), deny-списка или отказа UAC.</summary>
+    public int SkippedItems => Entries.Count(e => e.Outcome is CleanOutcome.InUseSkipped or CleanOutcome.Denied or CleanOutcome.ElevationDeclined);
 
     public int DeferredItems => Entries.Count(e => e.Outcome == CleanOutcome.InUseSkipped);
 }
