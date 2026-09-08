@@ -17,6 +17,13 @@ public sealed class DeletionOutcome
 
     public bool Denied { get; init; }
 
+    /// <summary>
+    /// Часть операций не выполнена из-за нехватки прав (Win32 error 5 / Access Denied,
+    /// FR-5.12), а не из-за занятости файла (sharing violation). Позволяет исполнителю плана
+    /// перенести объект в админ-пачку «требует админа» и продолжить остальные шаги.
+    /// </summary>
+    public bool AccessDenied { get; init; }
+
     public bool FullyDeleted => SkippedFiles == 0 && Errors.Count == 0 && !Denied;
 }
 
@@ -171,9 +178,16 @@ public sealed class DirectoryDeleter
         {
             entries = NativeDirectory.Enumerate(root);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (UnauthorizedAccessException)
         {
-            state.RecordError(root, ex.Message);
+            // Корень объекта недоступен в пользовательском контексте (Win32 error 5 / FR-5.12):
+            // ничего не удалено — объект переносится в «требует админа».
+            state.RecordAccessDeniedError(root, "Нет доступа к каталогу");
+            return ToOutcome(state);
+        }
+        catch (IOException)
+        {
+            state.RecordError(root, "Каталог недоступен");
             return ToOutcome(state);
         }
 
@@ -204,6 +218,7 @@ public sealed class DirectoryDeleter
         FreedBytes = state.FreedBytes,
         DeletedFiles = state.DeletedFiles,
         SkippedFiles = state.SkippedFiles,
+        AccessDenied = state.AccessDenied,
         Errors = state.Errors
     };
 
@@ -230,9 +245,16 @@ public sealed class DirectoryDeleter
             {
                 entries = NativeDirectory.Enumerate(directoryPath);
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (UnauthorizedAccessException)
             {
-                state.RecordError(directoryPath, ex.Message);
+                // Подкаталог недоступен из-за прав (Win32 error 5 / FR-5.12) — не прерываем
+                // остальные ветки, но помечаем исход как «требует админа».
+                state.RecordAccessDeniedError(directoryPath, "Нет доступа к каталогу");
+                return;
+            }
+            catch (IOException)
+            {
+                state.RecordError(directoryPath, "Каталог недоступен");
                 return;
             }
 
@@ -304,9 +326,15 @@ public sealed class DirectoryDeleter
             // Файл уже удалён (гонка с другим процессом) — не ошибка и не пропуск.
             return;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (UnauthorizedAccessException)
         {
-            state.RecordSkip(path, ex.Message);
+            // Нет прав даже прочитать метаданные — объект недоступен в пользовательском контексте (FR-5.12).
+            state.RecordAccessDenied(path, "Нет доступа к файлу");
+            return;
+        }
+        catch (IOException)
+        {
+            state.RecordSkip(path, "Файл недоступен (заблокирован)");
             return;
         }
 
@@ -325,9 +353,14 @@ public sealed class DirectoryDeleter
                 state.AddFile(length);
                 return;
             }
-            catch (Exception retryEx) when (retryEx is IOException or UnauthorizedAccessException)
+            catch (UnauthorizedAccessException)
             {
-                state.RecordSkip(path, retryEx.Message);
+                // Удаление заблокировано правами (Win32 error 5), а не занятостью файла.
+                state.RecordAccessDenied(path, "Нет прав на удаление файла");
+            }
+            catch (IOException)
+            {
+                state.RecordSkip(path, "Файл занят другим процессом");
             }
         }
     }
@@ -344,7 +377,7 @@ public sealed class DirectoryDeleter
         }
         catch (UnauthorizedAccessException)
         {
-            state.RecordError(path, "Нет доступа к каталогу");
+            state.RecordAccessDeniedError(path, "Нет доступа к каталогу");
         }
     }
 
@@ -362,6 +395,7 @@ public sealed class DirectoryDeleter
         private long _freedBytes;
         private long _deletedFiles;
         private long _skippedFiles;
+        private int _accessDenied;
         private long _lastReportedFiles = -ReportEveryFiles;
 
         public DeletionState(IProgress<DirectoryDeletionProgress>? progress, int concurrency = DefaultConcurrency)
@@ -375,6 +409,8 @@ public sealed class DirectoryDeleter
         public int DeletedFiles => (int)Volatile.Read(ref _deletedFiles);
 
         public int SkippedFiles => (int)Volatile.Read(ref _skippedFiles);
+
+        public bool AccessDenied => Volatile.Read(ref _accessDenied) > 0;
 
         public IReadOnlyList<string> Errors => _errors;
 
@@ -393,6 +429,22 @@ public sealed class DirectoryDeleter
         public void RecordSkip(string path, string message)
         {
             Interlocked.Increment(ref _skippedFiles);
+            RecordError(path, message);
+        }
+
+        /// <summary>
+        /// Операция не выполнена из-за нехватки прав (Win32 error 5 / Access Denied, FR-5.12):
+        /// пометка позволяет исполнителю перенести объект в «требует админа».
+        /// </summary>
+        public void RecordAccessDenied(string path, string message)
+        {
+            Interlocked.Exchange(ref _accessDenied, 1);
+            RecordSkip(path, message);
+        }
+
+        public void RecordAccessDeniedError(string path, string message)
+        {
+            Interlocked.Exchange(ref _accessDenied, 1);
             RecordError(path, message);
         }
 

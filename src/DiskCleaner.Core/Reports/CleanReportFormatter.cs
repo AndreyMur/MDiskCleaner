@@ -13,7 +13,7 @@ public static class CleanReportFormatter
         builder.AppendLine(report.DryRun ? "Режим: **предпросмотр (dry-run)** — ничего не удалено" : "Режим: выполнение плана");
         builder.AppendLine($"Освобождено: **{FormatBytes(report.TotalFreedBytes)}**");
         builder.AppendLine($"Затрачено: {report.Elapsed.TotalSeconds:F1} с");
-        builder.AppendLine($"Объектов в плане: {report.Entries.Count}; с ошибками: {report.FailedItems}; частично: {report.PartialItems}; отложено (используется): {report.DeferredItems}");
+        builder.AppendLine($"Объектов в плане: {report.Entries.Count}; с ошибками: {report.FailedItems}; частично: {report.PartialItems}; отложено (используется): {report.DeferredItems}; требует админа: {report.RequiresAdminItems}");
         builder.AppendLine();
         builder.AppendLine("| Объект | Результат | Освобождено | Примечание |");
         builder.AppendLine("|---|---|---|---|");
@@ -71,6 +71,7 @@ public static class CleanReportFormatter
         CleanOutcome.RebootRequired => "требуется перезагрузка",
         CleanOutcome.AlreadyUninstalled => "уже не установлено",
         CleanOutcome.ElevationDeclined => "отменено пользователем (UAC)",
+        CleanOutcome.RequiresAdmin => "требует админа (Access Denied)",
         _ => "ошибка"
     };
 

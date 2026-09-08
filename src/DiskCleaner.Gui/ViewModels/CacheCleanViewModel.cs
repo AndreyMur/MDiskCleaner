@@ -242,7 +242,8 @@ public sealed partial class CacheCleanViewModel : ObservableObject
             or CleanOutcome.Error
             or CleanOutcome.Partial
             or CleanOutcome.Denied
-            or CleanOutcome.ElevationDeclined;
+            or CleanOutcome.ElevationDeclined
+            or CleanOutcome.RequiresAdmin;
 
     private async Task RefreshPlanAsync(CancellationToken ct)
     {

@@ -201,6 +201,11 @@ public sealed class CacheCleanerService
             notes.Add("Не удалось очистить объект");
         }
 
+        if (outcome == CleanOutcome.RequiresAdmin)
+        {
+            notes.Insert(0, "Недостаточно прав (Access Denied) — объект перенесён в «требует админа» (FR-5.12)");
+        }
+
         return new CleanEntry(item, outcome, freed, notes.Count == 0 ? null : string.Join("; ", notes));
     }
 
@@ -377,6 +382,16 @@ public sealed class CacheCleanerService
         if (directDeletion is not null && directDeletion.Denied)
         {
             return CleanOutcome.Denied;
+        }
+
+        if (directDeletion is not null &&
+            directDeletion.AccessDenied &&
+            directDeletion.FreedBytes == 0 &&
+            !directDeletion.FullyDeleted)
+        {
+            // Ничего не удалось удалить из-за нехватки прав (Win32 error 5 / FR-5.12):
+            // шаг переносится в «требует админа», остальные продолжаются.
+            return CleanOutcome.RequiresAdmin;
         }
 
         if (directDeletion is not null && !directDeletion.FullyDeleted)

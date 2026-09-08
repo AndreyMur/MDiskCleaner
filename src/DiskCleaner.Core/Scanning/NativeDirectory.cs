@@ -70,6 +70,13 @@ internal static class NativeDirectory
             var attributes = File.GetAttributes(ExtendedPrefix + full);
             return (true, (attributes & FileAttributes.Directory) != 0);
         }
+        catch (UnauthorizedAccessException)
+        {
+            // Объект существует, но недоступен текущему контексту (Win32 error 5 / Access Denied,
+            // FR-5.12). Считаем его каталогом, чтобы удаление пошло через DirectoryDeleter и
+            // вернуло AccessDenied (перенос в админ-пачку), а не упало на проверке существования.
+            return (true, true);
+        }
     }
 
     public static long GetFileSize(string filePath)
@@ -94,8 +101,16 @@ internal static class NativeDirectory
     private static void ThrowForLastError(string path)
     {
         var error = Marshal.GetLastWin32Error();
-        throw new IOException(
-            $"Не удалось открыть каталог '{path}': {new Win32Exception(error).Message} (Win32 error {error})");
+        var message = $"Не удалось открыть каталог '{path}': {new Win32Exception(error).Message} (Win32 error {error})";
+        if (error == 5)
+        {
+            // Win32 error 5 / Access Denied — различаем «нет прав» (FR-5.12: шаг → «требует админа»)
+            // от «файл занят» (sharing violation, Win32 error 32): для первого исполнитель
+            // переносит объект в админ-пачку, для второго — пропускает как заблокированный.
+            throw new UnauthorizedAccessException(message);
+        }
+
+        throw new IOException(message);
     }
 
     private static long CombineSize(uint high, uint low) =>

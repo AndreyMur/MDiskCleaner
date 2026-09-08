@@ -119,8 +119,26 @@ public sealed class PlanExecutor
                 cleanOptions,
                 null,
                 cancellationToken);
-            entries.AddRange(report.Entries);
-            progressState.AddCompleted(localLeaves.Count, report.TotalFreedBytes, "Локальная очистка");
+
+            // FR-5.12: локальный шаг упёрся в нехватку прав (код 5 / Access Denied) — объект
+            // переносится в админ-пачку (требует админа), остальные локальные шаги продолжаются.
+            var requiresAdmin = report.Entries
+                .Where(e => e.Outcome == CleanOutcome.RequiresAdmin)
+                .ToList();
+            entries.AddRange(report.Entries.Where(e => e.Outcome != CleanOutcome.RequiresAdmin));
+
+            if (requiresAdmin.Count > 0)
+            {
+                elevatedLeaves = elevatedLeaves
+                    .Concat(requiresAdmin.Select(e => e.Item))
+                    .DistinctBy(i => i.Key)
+                    .ToList();
+            }
+
+            progressState.AddCompleted(
+                localLeaves.Count - requiresAdmin.Count,
+                report.TotalFreedBytes,
+                "Локальная очистка");
         }
 
         foreach (var leaf in registryLeaves)
