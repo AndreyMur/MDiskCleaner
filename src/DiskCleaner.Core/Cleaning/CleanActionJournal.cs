@@ -33,7 +33,8 @@ public static class CleanActionJournal
         CleanOutcome.Partial or
         CleanOutcome.Denied or
         CleanOutcome.InUseSkipped or
-        CleanOutcome.ElevationDeclined => true,
+        CleanOutcome.ElevationDeclined or
+        CleanOutcome.RequiresAdmin => true,
         _ => false
     };
 

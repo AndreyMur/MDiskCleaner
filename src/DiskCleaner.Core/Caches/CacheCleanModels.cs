@@ -17,7 +17,14 @@ public enum CleanOutcome
     RegistryEntryDeleted,
     RebootRequired,
     AlreadyUninstalled,
-    ElevationDeclined
+    ElevationDeclined,
+
+    /// <summary>
+    /// Шагу не хватило прав в пользовательском контексте (Win32 error 5 / Access Denied),
+    /// и он перенесён в админ-пачку (FR-5.12). Исполнитель плана повторяет такой шаг через
+    /// единый повышенный процесс; остальные шаги продолжаются.
+    /// </summary>
+    RequiresAdmin
 }
 
 public sealed record CleanEntry(
@@ -62,6 +69,9 @@ public sealed class CleanReport
 
     /// <summary>Шаги, пропущенные из-за занятости процессами (IN_USE), deny-списка или отказа UAC.</summary>
     public int SkippedItems => Entries.Count(e => e.Outcome is CleanOutcome.InUseSkipped or CleanOutcome.Denied or CleanOutcome.ElevationDeclined);
+
+    /// <summary>Шаги, перенесённые в «требует админа» из-за нехватки прав (код 5 / Access Denied, FR-5.12).</summary>
+    public int RequiresAdminItems => Entries.Count(e => e.Outcome == CleanOutcome.RequiresAdmin);
 
     public int DeferredItems => Entries.Count(e => e.Outcome == CleanOutcome.InUseSkipped);
 }
