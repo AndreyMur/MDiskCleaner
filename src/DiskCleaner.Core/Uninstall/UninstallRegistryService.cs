@@ -78,6 +78,7 @@ public sealed class UninstallRegistryService
             }
 
             var uninstallString = ReadString(key, "UninstallString")?.Trim();
+            var quietUninstallString = ReadString(key, "QuietUninstallString")?.Trim();
             var installLocation = ReadString(key, "InstallLocation")?.Trim();
             if (!string.IsNullOrWhiteSpace(installLocation))
             {
@@ -94,24 +95,27 @@ public sealed class UninstallRegistryService
                 InstallDate = ReadString(key, "InstallDate")?.Trim(),
                 InstallLocation = string.IsNullOrWhiteSpace(installLocation) ? null : installLocation,
                 UninstallString = string.IsNullOrWhiteSpace(uninstallString) ? null : uninstallString,
-                QuietUninstallString = ReadString(key, "QuietUninstallString")?.Trim(),
+                QuietUninstallString = string.IsNullOrWhiteSpace(quietUninstallString) ? null : quietUninstallString,
                 EstimatedSizeBytes = ReadEstimatedSizeBytes(key),
                 IsSystemComponent = ReadInt(key, "SystemComponent") == 1,
-                IsWindowsInstaller = IsWindowsInstallerKey(uninstallString, key)
+                IsWindowsInstaller = IsWindowsInstallerKey(uninstallString, quietUninstallString, key)
             });
         }
     }
 
-    private static bool IsWindowsInstallerKey(string? uninstallString, RegistryKey key)
+    private static bool IsWindowsInstallerKey(string? uninstallString, string? quietUninstallString, RegistryKey key)
     {
-        if (uninstallString is not null &&
-            uninstallString.Contains("msiexec", StringComparison.OrdinalIgnoreCase))
+        if (ContainsMsiexec(uninstallString) || ContainsMsiexec(quietUninstallString))
         {
             return true;
         }
 
         return ReadString(key, "WindowsInstaller")?.Equals("1", StringComparison.OrdinalIgnoreCase) == true;
     }
+
+    private static bool ContainsMsiexec(string? value) =>
+        value is not null &&
+        value.Contains("msiexec", StringComparison.OrdinalIgnoreCase);
 
     private static string ScopeKeyOf(RegistryBranchSpec branch) => branch.Hive switch
     {
