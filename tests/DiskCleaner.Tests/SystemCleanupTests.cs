@@ -101,6 +101,7 @@ public class SystemCleanupTests
         var provider = new SystemScanSeedsProvider(
             environment: environment,
             windowsDirectory: windows,
+            systemRoot: root.Path,
             recycleBinDirectories: [recycleBin]);
 
         var seeds = provider.BuildSeeds();
@@ -121,9 +122,18 @@ public class SystemCleanupTests
         var bin = Assert.Single(seeds, s => s.Key.StartsWith("system:recycle-bin:", StringComparison.Ordinal));
         Assert.Equal(CleanupCategory.RecycleBin, bin.Category);
         Assert.Equal(recycleBin, bin.Path);
-        Assert.True(bin.DeleteContentsOnly);
+        Assert.Equal(Path.GetPathRoot(recycleBin), bin.EmptyRecycleBinDrive);
 
-        Assert.Contains(seeds, s => s.Key == "system:windows-old" && s.RequiresAdmin && s.Risk == CleanupRisk.High);
+        var windowsOld = Assert.Single(seeds, s => s.Key == "system:windows-old");
+        Assert.True(windowsOld.RequiresAdmin);
+        Assert.Equal(CleanupRisk.High, windowsOld.Risk);
+        Assert.False(windowsOld.DeleteContentsOnly, "Windows.old удаляется целиком, а не только содержимое (FR-5.5).");
+
+        // hiberfil.sys в фикстуре отсутствует → предлагается обратимая операция powercfg /h on (FR-5.4).
+        var reenable = Assert.Single(seeds, s => s.Key == "system:hibernation:on");
+        Assert.True(reenable.RequiresAdmin);
+        Assert.True(reenable.CommandOnly);
+        Assert.EndsWith(" /h on", reenable.CleanCommand, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -97,7 +97,7 @@ public class DiskScanPlanTests
         var recycle = items.Single(i => i.Key == "disk:recycle-bin:C:\\");
         Assert.Equal(CleanupCategory.RecycleBin, recycle.Category);
         Assert.Equal(CleanupRisk.Low, recycle.Risk);
-        Assert.True(recycle.DeleteContentsOnly);
+        Assert.Equal(@"C:\", recycle.EmptyRecycleBinDrive);
         Assert.Equal(700, recycle.SizeBytes);
 
         var hibernation = items.Single(i => i.Key == "disk:hibernation:C:\\");
@@ -106,6 +106,7 @@ public class DiskScanPlanTests
         Assert.True(hibernation.CommandOnly);
         Assert.True(hibernation.RequiresAdmin);
         Assert.Equal("/h off", hibernation.CleanCommandArgs);
+        Assert.Equal(@"C:\hiberfil.sys", hibernation.VerifyPathAbsent);
         Assert.Equal(1000, hibernation.SizeBytes);
 
         Assert.DoesNotContain(items, i => i.Path == gradleJdks);
