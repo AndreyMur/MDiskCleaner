@@ -123,7 +123,8 @@ public class CachePhase14IntegrationTests
 
             Assert.True(File.Exists(lockedFile), "Заблокированный файл не должен удаляться.");
             Assert.False(File.Exists(Path.Combine(lockedCache, "free.bin")));
-            Assert.Equal(1, report.FailedItems);
+            Assert.Equal(1, report.PartialItems);
+            Assert.Equal(0, report.FailedItems);
             Assert.NotNull(healthy);
         }
     }

@@ -91,7 +91,8 @@ public sealed class ElevatedScenarioBuilder
                 item,
                 CleanOutcome.Error,
                 0,
-                result.Error ?? result.Note ?? $"Деинсталлятор завершился с ошибкой (код {result.ExitCode}).");
+                result.Error ?? result.Note ?? $"Деинсталлятор завершился с ошибкой (код {result.ExitCode}).",
+                result.ExitCode);
         }
 
         var note = result.Note;
@@ -103,7 +104,8 @@ public sealed class ElevatedScenarioBuilder
                 item,
                 CleanOutcome.CommandOnlyCleaned,
                 0,
-                note ?? $"Команда выполнена успешно (код {exitCode}).");
+                note ?? $"Команда выполнена успешно (код {exitCode}).",
+                exitCode);
         }
 
         if (exitCode is UninstallExitCodes.ProductNotInstalled or UninstallExitCodes.InstallSourceAbsent)
@@ -112,19 +114,21 @@ public sealed class ElevatedScenarioBuilder
                 item,
                 CleanOutcome.AlreadyUninstalled,
                 0,
-                $"Продукт уже не установлен (код {exitCode}). Запись останется до проверки реестра.");
+                $"Продукт уже не установлен (код {exitCode}). Запись останется до проверки реестра.",
+                exitCode);
         }
 
         if (result.RebootRequired || exitCode == UninstallExitCodes.RebootRequired)
         {
-            return new CleanEntry(item, CleanOutcome.RebootRequired, 0, "Деинсталляция завершена; требуется перезагрузка.");
+            return new CleanEntry(item, CleanOutcome.RebootRequired, 0, "Деинсталляция завершена; требуется перезагрузка.", exitCode);
         }
 
         return new CleanEntry(
             item,
             CleanOutcome.Uninstalled,
             item.SizeBytes ?? 0,
-            note ?? $"Деинсталлятор завершился успешно (код {exitCode}).");
+            note ?? $"Деинсталлятор завершился успешно (код {exitCode}).",
+            exitCode);
     }
 
     private static ElevatedStepKind StepKindOf(CleanupItem item)

@@ -171,7 +171,9 @@ public static class ReportDocumentBuilder
         var deleted = items.Where(e => IsRemoved(e.Outcome)).ToList();
         var blocked = items.Where(e => IsBlocked(e.Outcome)).ToList();
         var deferred = items.Where(e => e.Outcome == CleanOutcome.InUseSkipped).ToList();
-        var failed = items.Where(e => e.Outcome is CleanOutcome.Error or CleanOutcome.Partial).ToList();
+        // «Частично» (FR-5.9) не ошибка плана: частично очищенный шаг не попадает в failed,
+        // но остаётся в blocked со списком неудалённых файлов (Note).
+        var failed = items.Where(e => e.Outcome == CleanOutcome.Error).ToList();
 
         var leaves = items.Select(e => e.Item).ToList();
 

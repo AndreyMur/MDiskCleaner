@@ -5,7 +5,6 @@ using DiskCleaner.Core.Elevated;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Processes;
 using DiskCleaner.Core.Uninstall;
-using Serilog;
 
 namespace DiskCleaner.Core.Cleaning;
 
@@ -56,7 +55,7 @@ public sealed class PlanExecutor
             var dryRunProcesses = _processInspector.GetRunningProcesses();
             _inUseDetector.MarkInUse(leaves, dryRunProcesses);
             var dryReport = CreateDryRunReport(leaves, startedAt);
-            AuditReport(dryReport);
+            WriteJournal(dryReport);
             return dryReport;
         }
 
@@ -149,7 +148,7 @@ public sealed class PlanExecutor
             DryRun = false,
             Elapsed = DateTime.UtcNow - startedAt
         };
-        AuditReport(reportResult);
+        WriteJournal(reportResult);
         return reportResult;
     }
 
@@ -199,24 +198,35 @@ public sealed class PlanExecutor
         var exitCode = result.ExitCode;
         if (isMsiexec && exitCode is UninstallExitCodes.ProductNotInstalled or UninstallExitCodes.InstallSourceAbsent)
         {
-            return new CleanEntry(item, CleanOutcome.AlreadyUninstalled, 0, $"Продукт уже не установлен (код {exitCode}).");
+            return new CleanEntry(
+                item,
+                CleanOutcome.AlreadyUninstalled,
+                0,
+                $"Продукт уже не установлен (код {exitCode}).",
+                exitCode);
         }
 
         if (exitCode == 0)
         {
-            return new CleanEntry(item, CleanOutcome.Uninstalled, item.SizeBytes ?? 0, "Деинсталляция завершена успешно.");
+            return new CleanEntry(
+                item,
+                CleanOutcome.Uninstalled,
+                item.SizeBytes ?? 0,
+                "Деинсталляция завершена успешно.",
+                exitCode);
         }
 
         if (isMsiexec && exitCode == UninstallExitCodes.RebootRequired)
         {
-            return new CleanEntry(item, CleanOutcome.RebootRequired, 0, "Требуется перезагрузка (код 3010).");
+            return new CleanEntry(item, CleanOutcome.RebootRequired, 0, "Требуется перезагрузка (код 3010).", exitCode);
         }
 
         return new CleanEntry(
             item,
             CleanOutcome.Error,
             0,
-            $"Деинсталлятор завершился с кодом {exitCode}: {Truncate(result.Output, 200)}");
+            $"Деинсталлятор завершился с кодом {exitCode}: {Truncate(result.Output, 200)}",
+            exitCode);
     }
 
     private static bool RequiresElevation(CleanupItem item) =>
@@ -255,46 +265,12 @@ public sealed class PlanExecutor
         return leaf.Warning is null ? "Будет очищено" : $"Будет очищено. {leaf.Warning}";
     }
 
-    private static void AuditReport(CleanReport report)
+    private static void WriteJournal(CleanReport report)
     {
         foreach (var entry in report.Entries)
         {
-            var item = entry.Item;
-            Log.Information(
-                "Clean action: time={Time:yyyy-MM-dd HH:mm:ss} object={Object} sizeBytes={Size} op={Operation} result={Result} freedBytes={Freed} note={Note}",
-                DateTime.Now,
-                item.Path ?? item.DisplayName,
-                item.EffectiveSizeBytes,
-                OperationOf(item),
-                entry.Outcome,
-                entry.FreedBytes,
-                entry.Note);
+            CleanActionJournal.Write(entry);
         }
-    }
-
-    private static string OperationOf(CleanupItem item)
-    {
-        if (item.MoveToRecycleBin)
-        {
-            return "move-to-recycle-bin";
-        }
-
-        if (item.UninstallMode)
-        {
-            return "uninstall";
-        }
-
-        if (item.RegistryDeletePath is not null)
-        {
-            return "delete-registry";
-        }
-
-        if (!string.IsNullOrEmpty(item.CleanCommandFile))
-        {
-            return "command";
-        }
-
-        return "delete-path";
     }
 
     private static string Truncate(string value, int maxLength) =>
