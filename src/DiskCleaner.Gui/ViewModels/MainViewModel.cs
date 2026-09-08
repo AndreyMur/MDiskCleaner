@@ -191,6 +191,18 @@ public sealed partial class MainViewModel : ObservableObject
         window.ShowDialog();
     }
 
+    [RelayCommand(CanExecute = nameof(CanStartOperation))]
+    private void OpenLeftoverScan()
+    {
+        var owner = Application.Current.MainWindow;
+        var window = new LeftoverScanWindow(new LeftoverScanViewModel())
+        {
+            Owner = owner
+        };
+
+        window.ShowDialog();
+    }
+
     /// <summary>Корень диска для контекста «вне сканируемого диска» на экране очистки кэшей (FR-2.3).</summary>
     private static string? NormalizeScanRoot(string? root)
     {

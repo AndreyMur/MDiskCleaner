@@ -17,13 +17,22 @@ public partial class ReportWindow : Window
         InitializeComponent();
     }
 
-    public static void Show(Window? owner, CleanReport report)
+    public static void Show(Window? owner, CleanReport report) =>
+        Show(
+            owner,
+            CleanReportFormatter.ToMarkdown(report),
+            CleanReportFormatter.ToJson(report),
+            "Отчёт");
+
+    /// <summary>Показывает окно отчёта с готовым текстом (Markdown/JSON) — используется для отчётов разных модулей.</summary>
+    public static void Show(Window? owner, string markdown, string json, string title)
     {
         var window = new ReportWindow
         {
             Owner = owner,
-            _markdown = CleanReportFormatter.ToMarkdown(report),
-            _json = CleanReportFormatter.ToJson(report)
+            Title = title,
+            _markdown = markdown,
+            _json = json
         };
 
         window.ReportText.Text = window._markdown;
