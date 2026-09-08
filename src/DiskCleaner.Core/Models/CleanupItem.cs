@@ -1,3 +1,5 @@
+using DiskCleaner.Core.Processes;
+
 namespace DiskCleaner.Core.Models;
 
 public sealed class CleanupItem
@@ -77,6 +79,20 @@ public sealed class CleanupItem
     public long? FileCount { get; set; }
 
     public bool InUse { get; set; }
+
+    /// <summary>
+    /// Процессы, из-за которых объект помечен <c>IN_USE</c> и не удаляется (FR-5.7):
+    /// их ExecutablePath находится внутри удаляемого пути либо имя совпадает с
+    /// <see cref="OwnerProcessNames"/>. Заполняет <see cref="Processes.InUseDetector"/>;
+    /// список возвращается исполнителем для показа пользователю.
+    /// </summary>
+    public IReadOnlyList<RunningProcessInfo> BlockingProcesses { get; set; } = Array.Empty<RunningProcessInfo>();
+
+    /// <summary>
+    /// Рекомендуемая стратегия для занятого объекта (FR-5.8): закрыть «долгоживущее»
+    /// приложение и повторить либо отложить шаг. <c>null</c> — объект не помечен IN_USE.
+    /// </summary>
+    public InUseAdvice? InUseAdvice { get; set; }
 
     public bool IsExpanded { get; set; }
 
