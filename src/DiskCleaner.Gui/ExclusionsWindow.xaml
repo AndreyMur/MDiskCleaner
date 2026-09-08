@@ -1,0 +1,82 @@
+<Window x:Class="DiskCleaner.Gui.ExclusionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Исключения остатков"
+        Width="680" Height="440"
+        MinWidth="560" MinHeight="340"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Loaded="OnLoaded">
+    <DockPanel Margin="14">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="EntryTextBox"
+                         Height="28"
+                         VerticalContentAlignment="Center"
+                         ToolTip="Полный путь к каталогу (например, C:\Users\me\AppData\Local\pachca-updater) или имя/бренд каталога (например, Wondershare)." />
+                <Button Grid.Column="1"
+                        x:Name="AddButton"
+                        Content="Добавить"
+                        Width="100" Height="28"
+                        Margin="8,0,0,0"
+                        Click="AddButton_Click" />
+            </Grid>
+        </DockPanel>
+
+        <Border DockPanel.Dock="Top"
+                Margin="0,0,0,10"
+                Padding="10,6"
+                Background="#EAF3FB"
+                BorderBrush="#AFC9DE"
+                BorderThickness="1"
+                CornerRadius="3">
+            <TextBlock x:Name="StorePathText"
+                       TextWrapping="Wrap"
+                       Foreground="#1F4E79"
+                       FontSize="12" />
+        </Border>
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+            <Button x:Name="DeleteButton"
+                    DockPanel.Dock="Right"
+                    Content="Удалить выбранное"
+                    Width="150" Height="30"
+                    Click="DeleteButton_Click" />
+            <Button x:Name="CloseButton"
+                    DockPanel.Dock="Right"
+                    Content="Закрыть"
+                    Width="100" Height="30"
+                    Margin="0,0,8,0"
+                    IsCancel="True"
+                    Click="CloseButton_Click" />
+            <TextBlock x:Name="ErrorText"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       Foreground="#C42B1C"
+                       Margin="0,0,10,0" />
+        </DockPanel>
+
+        <GroupBox Padding="8">
+            <GroupBox.Header>
+                <TextBlock FontWeight="SemiBold" Text="Записи исключений (путь или бренд)" />
+            </GroupBox.Header>
+            <ListBox x:Name="EntriesList"
+                     SelectionMode="Single"
+                     BorderBrush="#DDDDDD">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock TextWrapping="Wrap">
+                            <Run Text="{Binding Kind}" FontWeight="SemiBold" Foreground="#1F4E79" />
+                            <Run Text=": " FontWeight="SemiBold" Foreground="#1F4E79" />
+                            <Run Text="{Binding Value}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </GroupBox>
+    </DockPanel>
+</Window>

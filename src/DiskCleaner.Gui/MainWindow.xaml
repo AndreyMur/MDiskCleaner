@@ -64,6 +64,10 @@
                             Command="{Binding OpenCacheCleanCommand}"
                             ToolTip="Открыть экран «Очистка кэшей»: группы кэшей по менеджеру/приложению, отметка чекбоксами, dry-run-предпросмотр, выполнение с прогрессом и отчёт (FR-2.1–2.12)." />
                     <Button Style="{StaticResource ToolbarButton}"
+                            Content="Остатки"
+                            Command="{Binding OpenLeftoverScanCommand}"
+                            ToolTip="Открыть экран «Остатки удалённых программ»: группы остатков с основаниями, включение чекбоксами (по умолчанию выключено), пообъектное подтверждение опасных объектов, dry-run и исключения (FR-3.2–3.8)." />
+                    <Button Style="{StaticResource ToolbarButton}"
                             Content="Отмена"
                             Command="{Binding CancelCommand}" />
                     <Button Style="{StaticResource ToolbarButton}"
