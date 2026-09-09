@@ -1,7 +1,10 @@
 <Window x:Class="DiskCleaner.Gui.CacheCleanWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="pack://application:,,,/DiskCleaner;component/Assets/DiskCleaner.ico"
         xmlns:converters="clr-namespace:DiskCleaner.Gui.Converters"
+        Background="{StaticResource WindowBackgroundBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
         Title="Очистка кэшей"
         Height="760" Width="1180"
         MinHeight="560" MinWidth="940"
@@ -12,7 +15,7 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
         <converters:RiskToBrushConverter x:Key="RiskBrushConverter" />
 
-        <Style x:Key="ToolbarButton" TargetType="Button">
+        <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Height" Value="30" />
             <Setter Property="MinWidth" Value="110" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -26,7 +29,7 @@
     </Window.Resources>
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#F3F3F3" Padding="10,6">
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBackgroundBrush}" Padding="10,6">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Right"
                            VerticalAlignment="Center"
@@ -57,21 +60,21 @@
         <TextBlock DockPanel.Dock="Top"
                    Margin="10,8,10,0"
                    TextWrapping="Wrap"
-                   Foreground="#666666"
+                   Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="12"
                    Text="{Binding ContextText}" />
 
         <Border DockPanel.Dock="Top"
                 Margin="10,6,10,0"
                 Padding="10,6"
-                Background="#FFF4E5"
-                BorderBrush="#E8C98A"
+                Background="{StaticResource WarningBackgroundBrush}"
+                BorderBrush="{StaticResource WarningBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="3"
                 Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibilityConverter}}">
             <TextBlock Text="{Binding WarningsText}"
                        TextWrapping="Wrap"
-                       Foreground="#7A4F00" />
+                       Foreground="{StaticResource WarningBrightTextBrush}" />
         </Border>
 
         <TextBlock DockPanel.Dock="Top"
@@ -106,7 +109,7 @@
                         <Expander IsExpanded="True"
                                   Margin="0,0,0,8"
                                   Padding="4"
-                                  BorderBrush="#DDDDDD"
+                                  BorderBrush="{StaticResource BorderBrush}"
                                   BorderThickness="1">
                             <Expander.Header>
                                 <Grid Margin="2,0">
@@ -131,19 +134,19 @@
                                             <TextBlock Text="{Binding SelectedText}"
                                                        Margin="10,2,0,0"
                                                        FontSize="11"
-                                                       Foreground="#2F6F2F"
+                                                       Foreground="{StaticResource SuccessTextBrush}"
                                                        VerticalAlignment="Center" />
                                         </StackPanel>
                                         <TextBlock Text="{Binding Subtitle}"
                                                    Visibility="{Binding HasSubtitle, Converter={StaticResource BoolToVisibilityConverter}}"
                                                    TextWrapping="Wrap"
-                                                   Foreground="#7A4F00"
+                                                   Foreground="{StaticResource WarningBrightTextBrush}"
                                                    FontSize="12" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Column="2"
                                                VerticalAlignment="Center"
-                                               Foreground="#444444"
+                                               Foreground="{StaticResource TextBodyBrush}"
                                                FontSize="12"
                                                Text="{Binding SummaryText}" />
                                 </Grid>
@@ -152,7 +155,7 @@
                             <ItemsControl ItemsSource="{Binding Actions}" Margin="12,4,4,4">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border BorderBrush="#EEEEEE"
+                                        <Border BorderBrush="{StaticResource SubtleBorderBrush}"
                                                 BorderThickness="0,0,0,1"
                                                 Padding="0,7">
                                             <Grid>
@@ -177,7 +180,7 @@
                                                         <TextBlock Text="{Binding LabelsText}"
                                                                    Margin="8,2,0,0"
                                                                    FontSize="11"
-                                                                   Foreground="#B46A00"
+                                                                   Foreground="{StaticResource WarningTextBrush}"
                                                                    VerticalAlignment="Center" />
                                                     </StackPanel>
 
@@ -203,7 +206,7 @@
                                                     </TextBlock>
 
                                                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,0,0,2"
-                                                               Foreground="#666666">
+                                                               Foreground="{StaticResource TextSecondaryBrush}">
                                                         <Run Text="Восстановление: " FontWeight="SemiBold" />
                                                         <Run Text="{Binding RestoreText, Mode=OneWay}" />
                                                     </TextBlock>
@@ -212,7 +215,7 @@
                                                                Visibility="{Binding HasReason, Converter={StaticResource BoolToVisibilityConverter}}"
                                                                TextWrapping="Wrap"
                                                                FontSize="12"
-                                                               Foreground="#B46A00" />
+                                                               Foreground="{StaticResource WarningTextBrush}" />
                                                 </StackPanel>
 
                                                 <StackPanel Grid.Column="2" VerticalAlignment="Top">
@@ -229,7 +232,7 @@
                                                                Visibility="{Binding RequiresExplicitConsent, Converter={StaticResource BoolToVisibilityConverter}}"
                                                                Margin="0,3,0,0"
                                                                FontSize="11"
-                                                               Foreground="#B46A00"
+                                                               Foreground="{StaticResource WarningTextBrush}"
                                                                HorizontalAlignment="Right" />
                                                 </StackPanel>
                                             </Grid>

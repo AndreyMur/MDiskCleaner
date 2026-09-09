@@ -61,12 +61,10 @@ public sealed class TreeItemViewModel : ObservableObject
         get => IsSelectable ? _isChecked : ComputeAggregate(Children);
         set
         {
-            if (value is not true and not false)
-            {
-                return;
-            }
-
-            ApplyToLeaves(value.Value);
+            // WPF-чекбокс в трёхпозиционном режиме при клике по отмеченному узлу передаёт null
+            // (цикл true → null → false), а не false. Null трактуем как «снять отметку»,
+            // иначе выделенный лист или полностью отмеченная группа не снимаются одним кликом.
+            ApplyToLeaves(value == true);
             NotifyAncestorsOfAggregateChange();
             _leafSelectionChanged();
         }

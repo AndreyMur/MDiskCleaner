@@ -136,6 +136,26 @@ public class LeftoverScanViewModelTests
     }
 
     [Fact]
+    public async Task FullyCheckedGroup_NullFromThreeStateBoxClick_UnchecksBulkObjects()
+    {
+        var harness = LeftoverTestSupport.CreateHarness();
+        harness.Source.Handler = LeftoverTestSupport.BuildMixedGroupPlan;
+        await harness.ViewModel.ScanCommand.ExecuteAsync(null);
+
+        var group = harness.ViewModel.Groups.Single(g => g.Title == "Остатки апдейтеров");
+        group.IsChecked = true;
+        var updater = group.Items.Single(i => i.Title == "qwen-updater");
+        Assert.True(updater.IsSelected);
+        Assert.Equal(true, group.IsChecked);
+
+        group.IsChecked = null;
+
+        Assert.False(updater.IsSelected);
+        Assert.Equal(false, group.IsChecked);
+        Assert.Contains("Ничего не выбрано", harness.ViewModel.SelectedSummary, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GroupWithOnlyDangerousObjects_HasNoBulkCheck()
     {
         var harness = LeftoverTestSupport.CreateHarness();

@@ -255,9 +255,10 @@ public sealed class DirectoryDeleter
     /// Рекурсивное удаление каталога параллельными партиями: подкаталоги обрабатываются параллельно,
     /// файлы внутри каталога удаляются параллельными партиями — для «больших» каталогов (&gt; 1 ГБ)
     /// параллелизм выше (16 вместо 8). Reparse-точки (симлинки/junction) не обходятся.
-    /// Общая занятость ограничена глобальным семафором <paramref name="gate"/>: одновременно
-    /// обрабатывается не больше <paramref name="concurrency"/> каталогов, поэтому глубина дерева
-    /// не приводит к взрывному росту потоков.
+    /// Глобальный семафор <see cref="DeletionState"/> ограничивает число одновременно читаемых
+    /// каталогов: слот занимается только на время <c>Enumerate</c> и освобождается до рекурсивного
+    /// спуска, поэтому глубина дерева не приводит ни к взрывному росту потоков, ни к взаимоблокировке
+    /// рекурсивных веток на семафоре.
     /// </summary>
     private static async Task DeleteTreeAsync(
         string directoryPath,
@@ -266,10 +267,14 @@ public sealed class DirectoryDeleter
         int concurrency,
         CancellationToken cancellationToken)
     {
+        // Слот гейта занимается только на время чтения каталога (Enumerate) и освобождается
+        // до рекурсивного спуска: ветка не может ждать слот, удерживая его (иначе на деревьях,
+        // где каждый каталог содержит вложенные каталоги, все рекурсивные ветки блокируют друг
+        // друга на семафоре и удаление зависает навсегда).
+        List<NativeDirectory.Entry> entries;
         await state.AcquireDirectoryAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            List<NativeDirectory.Entry> entries;
             try
             {
                 entries = NativeDirectory.Enumerate(directoryPath);
@@ -286,61 +291,61 @@ public sealed class DirectoryDeleter
                 state.RecordError(directoryPath, "Каталог недоступен");
                 return;
             }
-
-            var files = new List<string>(entries.Count);
-            var subDirectories = new List<string>(entries.Count);
-
-            foreach (var entry in entries)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (entry.IsDirectory)
-                {
-                    if (!entry.IsReparsePoint)
-                    {
-                        subDirectories.Add(Path.Combine(directoryPath, entry.Name));
-                    }
-                }
-                else
-                {
-                    files.Add(Path.Combine(directoryPath, entry.Name));
-                }
-            }
-
-            if (files.Count > 0)
-            {
-                await Parallel.ForEachAsync(
-                    files,
-                    new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = concurrency },
-                    (file, _) =>
-                    {
-                        TryDeleteFile(file, state);
-                        return ValueTask.CompletedTask;
-                    });
-            }
-
-            if (subDirectories.Count > 0)
-            {
-                await Parallel.ForEachAsync(
-                    subDirectories,
-                    new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = concurrency },
-                    async (subDirectory, token) =>
-                    {
-                        await DeleteTreeAsync(subDirectory, state, removeSelf: true, concurrency, token);
-                    });
-            }
-
-            if (removeSelf)
-            {
-                TryRemoveEmptyDirectory(directoryPath, state);
-            }
-
-            state.ReportProgress(directoryPath);
         }
         finally
         {
             state.ReleaseDirectory();
         }
+
+        var files = new List<string>(entries.Count);
+        var subDirectories = new List<string>(entries.Count);
+
+        foreach (var entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (entry.IsDirectory)
+            {
+                if (!entry.IsReparsePoint)
+                {
+                    subDirectories.Add(Path.Combine(directoryPath, entry.Name));
+                }
+            }
+            else
+            {
+                files.Add(Path.Combine(directoryPath, entry.Name));
+            }
+        }
+
+        if (files.Count > 0)
+        {
+            await Parallel.ForEachAsync(
+                files,
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = concurrency },
+                (file, _) =>
+                {
+                    TryDeleteFile(file, state);
+                    return ValueTask.CompletedTask;
+                });
+        }
+
+        if (subDirectories.Count > 0)
+        {
+            await Parallel.ForEachAsync(
+                subDirectories,
+                new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = concurrency },
+                async (subDirectory, token) =>
+                {
+                    await DeleteTreeAsync(subDirectory, state, removeSelf: true, concurrency, token);
+                });
+        }
+
+        if (removeSelf)
+        {
+            TryRemoveEmptyDirectory(directoryPath, state);
+        }
+
+        state.ReportProgress(directoryPath);
     }
 
     private static void TryDeleteFile(string path, DeletionState state)

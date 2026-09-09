@@ -56,6 +56,43 @@ public class TreeItemViewModelTests
     }
 
     [Fact]
+    public void ClickOnFullyCheckedNode_NullFromThreeStateBox_UnchecksAllLeaves()
+    {
+        var selectionChanges = 0;
+        var rootVm = new TreeItemViewModel(
+            BuildMiniCategory(leafCount: 3),
+            null,
+            () => selectionChanges++);
+
+        rootVm.IsChecked = true;
+        Assert.True(rootVm.GetLeaves().All(l => l.IsChecked == true));
+
+        rootVm.IsChecked = null;
+
+        Assert.All(rootVm.GetLeaves(), leaf => Assert.False(leaf.IsChecked));
+        Assert.Equal(false, rootVm.IsChecked);
+        Assert.Equal(2, selectionChanges);
+    }
+
+    [Fact]
+    public void ClickOnCheckedLeaf_NullFromThreeStateBox_UnchecksLeaf()
+    {
+        var rootVm = new TreeItemViewModel(
+            BuildMiniCategory(leafCount: 2),
+            null,
+            () => { });
+        var leaves = rootVm.GetLeaves().ToList();
+
+        leaves[0].IsChecked = true;
+        Assert.True(leaves[0].IsChecked);
+
+        leaves[0].IsChecked = null;
+
+        Assert.False(leaves[0].IsChecked);
+        Assert.Equal(false, rootVm.IsChecked);
+    }
+
+    [Fact]
     public void InUseLeaf_CannotBeCheckedByCategorySelection()
     {
         var rootVm = new TreeItemViewModel(

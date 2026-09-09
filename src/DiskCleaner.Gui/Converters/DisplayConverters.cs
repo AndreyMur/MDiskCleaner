@@ -48,12 +48,12 @@ public sealed class RiskToBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is not CleanupRisk risk
-            ? Brushes.Gray
+            ? new SolidColorBrush(Color.FromRgb(0x8F, 0xA2, 0xC2))
             : risk switch
             {
-                CleanupRisk.Low => new SolidColorBrush(Color.FromRgb(0x10, 0x7C, 0x10)),
-                CleanupRisk.Medium => new SolidColorBrush(Color.FromRgb(0xB4, 0x6A, 0x00)),
-                _ => new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C))
+                CleanupRisk.Low => new SolidColorBrush(Color.FromRgb(0x58, 0xD2, 0x84)),
+                CleanupRisk.Medium => new SolidColorBrush(Color.FromRgb(0xFF, 0xB2, 0x4D)),
+                _ => new SolidColorBrush(Color.FromRgb(0xFF, 0x7A, 0x70))
             };
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
@@ -72,7 +72,9 @@ public sealed class BoolToInUseTextConverter : IValueConverter
 public sealed class BoolToInUseBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is true ? new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C)) : Brushes.Gray;
+        value is true
+            ? new SolidColorBrush(Color.FromRgb(0xFF, 0x7A, 0x70))
+            : new SolidColorBrush(Color.FromRgb(0x8F, 0xA2, 0xC2));
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         Binding.DoNothing;
@@ -109,13 +111,13 @@ public sealed class ChangeKindToBrushConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is not PlanObjectChangeKind kind
-            ? Brushes.Gray
+            ? new SolidColorBrush(Color.FromRgb(0x8F, 0xA2, 0xC2))
             : kind switch
             {
-                PlanObjectChangeKind.Added => new SolidColorBrush(Color.FromRgb(0xB4, 0x6A, 0x00)),
-                PlanObjectChangeKind.Removed => new SolidColorBrush(Color.FromRgb(0x10, 0x7C, 0x10)),
-                PlanObjectChangeKind.Changed => new SolidColorBrush(Color.FromRgb(0x1F, 0x4E, 0x79)),
-                _ => Brushes.Gray
+                PlanObjectChangeKind.Added => new SolidColorBrush(Color.FromRgb(0xFF, 0xB2, 0x4D)),
+                PlanObjectChangeKind.Removed => new SolidColorBrush(Color.FromRgb(0x58, 0xD2, 0x84)),
+                PlanObjectChangeKind.Changed => new SolidColorBrush(Color.FromRgb(0x7C, 0xC4, 0xFF)),
+                _ => new SolidColorBrush(Color.FromRgb(0x8F, 0xA2, 0xC2))
             };
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
