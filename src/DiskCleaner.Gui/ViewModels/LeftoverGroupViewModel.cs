@@ -67,16 +67,16 @@ public sealed partial class LeftoverGroupViewModel : ObservableObject
         }
         set
         {
-            if (value is not true and not false)
-            {
-                return;
-            }
+            // WPF-чекбокс группы (IsThreeState) при клике по полностью отмеченной группе
+            // передаёт null (цикл true → null → false), а не false. Null трактуем как «снять»,
+            // иначе снять всю группу одним кликом невозможно.
+            var target = value == true;
 
             foreach (var item in _bulkItems)
             {
-                if (item.IsSelected != value)
+                if (item.IsSelected != target)
                 {
-                    item.IsSelected = value.Value;
+                    item.IsSelected = target;
                 }
             }
 

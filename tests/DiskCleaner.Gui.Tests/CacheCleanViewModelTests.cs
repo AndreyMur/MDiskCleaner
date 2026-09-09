@@ -121,6 +121,25 @@ public class CacheCleanViewModelTests
     }
 
     [Fact]
+    public async Task FullyCheckedGroup_NullFromThreeStateBoxClick_UnchecksBulkObjects()
+    {
+        var harness = CacheCleanTestSupport.CreateHarness(CacheCleanTestSupport.TypicalProfileLeaves());
+        await harness.ViewModel.AnalyzeCommand.ExecuteAsync(null);
+
+        var gradle = harness.ViewModel.Groups.Single(g => g.Title == "Gradle");
+        gradle.IsChecked = true;
+        var bulk = gradle.Actions.Single(a => a.Title == "Gradle caches");
+        Assert.True(bulk.IsSelected);
+        Assert.Equal(true, gradle.IsChecked);
+
+        gradle.IsChecked = null;
+
+        Assert.False(bulk.IsSelected);
+        Assert.Equal(false, gradle.IsChecked);
+        Assert.Contains("Ничего не выбрано", harness.ViewModel.SelectedSummary, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Analyze_NoScannedDisk_AllCachesInScope()
     {
         var leaves = new[]

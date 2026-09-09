@@ -79,16 +79,16 @@ public sealed class CacheGroupViewModel : ObservableObject
         }
         set
         {
-            if (value is not true and not false)
-            {
-                return;
-            }
+            // WPF-чекбокс группы (IsThreeState) при клике по полностью отмеченной группе
+            // передаёт null (цикл true → null → false), а не false. Null трактуем как «снять»,
+            // иначе снять всю группу одним кликом невозможно.
+            var target = value == true;
 
             foreach (var action in _bulkSelectable)
             {
-                if (action.IsSelected != value)
+                if (action.IsSelected != target)
                 {
-                    action.IsSelected = value.Value;
+                    action.IsSelected = target;
                 }
             }
 

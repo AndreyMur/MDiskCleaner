@@ -1,6 +1,9 @@
 <Window x:Class="DiskCleaner.Gui.ExclusionsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="pack://application:,,,/DiskCleaner;component/Assets/DiskCleaner.ico"
+        Background="{StaticResource WindowBackgroundBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
         Title="Исключения остатков"
         Width="680" Height="440"
         MinWidth="560" MinHeight="340"
@@ -30,13 +33,13 @@
         <Border DockPanel.Dock="Top"
                 Margin="0,0,0,10"
                 Padding="10,6"
-                Background="#EAF3FB"
-                BorderBrush="#AFC9DE"
+                Background="{StaticResource InfoBackgroundBrush}"
+                BorderBrush="{StaticResource InfoBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="3">
             <TextBlock x:Name="StorePathText"
                        TextWrapping="Wrap"
-                       Foreground="#1F4E79"
+                       Foreground="{StaticResource InfoTextBrush}"
                        FontSize="12" />
         </Border>
 
@@ -56,7 +59,7 @@
             <TextBlock x:Name="ErrorText"
                        VerticalAlignment="Center"
                        TextWrapping="Wrap"
-                       Foreground="#C42B1C"
+                       Foreground="{StaticResource ErrorTextBrush}"
                        Margin="0,0,10,0" />
         </DockPanel>
 
@@ -66,12 +69,12 @@
             </GroupBox.Header>
             <ListBox x:Name="EntriesList"
                      SelectionMode="Single"
-                     BorderBrush="#DDDDDD">
+                     BorderBrush="{StaticResource BorderBrush}">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <TextBlock TextWrapping="Wrap">
-                            <Run Text="{Binding Kind}" FontWeight="SemiBold" Foreground="#1F4E79" />
-                            <Run Text=": " FontWeight="SemiBold" Foreground="#1F4E79" />
+                            <Run Text="{Binding Kind}" FontWeight="SemiBold" Foreground="{StaticResource InfoTextBrush}" />
+                            <Run Text=": " FontWeight="SemiBold" Foreground="{StaticResource InfoTextBrush}" />
                             <Run Text="{Binding Value}" />
                         </TextBlock>
                     </DataTemplate>
