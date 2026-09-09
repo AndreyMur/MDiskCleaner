@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk/4.0.6">
+
+  <PropertyGroup>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <OutputName>DiskCleaner-$(ProductVersion)</OutputName>
+    <OutputType>Package</OutputType>
+    <InstallerVersion>500</InstallerVersion>
+    <PublishDir Condition="'$(PublishDir)' == ''">$(MSBuildThisFileDirectory)..\publish\installer\app</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir);ProductVersion=$(ProductVersion)</DefineConstants>
+  </PropertyGroup>
+
+</Project>
