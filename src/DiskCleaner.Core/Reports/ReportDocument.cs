@@ -300,6 +300,7 @@ public static class ReportDocumentBuilder
         CleanOutcome.InUseSkipped or
         CleanOutcome.ElevationDeclined or
         CleanOutcome.RequiresAdmin or
+        CleanOutcome.NotConfirmed or
         CleanOutcome.RebootRequired or
         CleanOutcome.AlreadyUninstalled => true,
         _ => false
