@@ -72,6 +72,7 @@ public static class CleanReportFormatter
         CleanOutcome.AlreadyUninstalled => "уже не установлено",
         CleanOutcome.ElevationDeclined => "отменено пользователем (UAC)",
         CleanOutcome.RequiresAdmin => "требует админа (Access Denied)",
+        CleanOutcome.NotConfirmed => "не подтверждено пользователем",
         _ => "ошибка"
     };
 
