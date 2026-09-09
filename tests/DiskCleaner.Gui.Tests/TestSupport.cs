@@ -36,7 +36,9 @@ internal static class MainViewModelFactory
 {
     public static MainViewModel Create(
         FakeAnalysisCoordinator fake,
-        ISaveFileDialogService? saveFileDialog = null)
+        ISaveFileDialogService? saveFileDialog = null,
+        IPlanRunExecutor? planExecutor = null,
+        IPlanRunDialogService? planDialogs = null)
     {
         var cacheDir = Path.Combine(
             Path.GetTempPath(),
@@ -44,7 +46,7 @@ internal static class MainViewModelFactory
             Guid.NewGuid().ToString("N"),
             "scancache");
         var snapshots = new PlanSnapshotService(new PlanSnapshotStore(cacheDir));
-        return new MainViewModel(fake, snapshots, saveFileDialog);
+        return new MainViewModel(fake, snapshots, saveFileDialog, planExecutor, planDialogs);
     }
 }
 

@@ -61,7 +61,7 @@ public class MainViewModelAnalysisScreenTests
         Assert.Equal("3 объекта", cacheRoot.CategoryObjectsText);
         Assert.Contains("Найдено объектов: 6", vm.StatusText);
         Assert.Contains("используется: 1", vm.StatusText);
-        Assert.Equal("Ничего не выбрано", vm.SelectedSummary);
+        Assert.StartsWith("Выбрано: 2 объектов", vm.SelectedSummary);
     }
 
     [Fact]
@@ -112,10 +112,16 @@ public class MainViewModelAnalysisScreenTests
 
         var leaves = vm.RootNodes.SelectMany(n => n.GetLeaves()).ToList();
         var npm = Check(leaves, "npm cache");
-        npm.IsChecked = true;
-        Assert.Single(vm.PlanRows);
+
+        Assert.Equal(2, vm.PlanRows.Count);
 
         npm.IsChecked = false;
+
+        Assert.Single(vm.PlanRows);
+        Assert.Contains(vm.PlanRows, r => r.Name.EndsWith("pip cache", StringComparison.Ordinal));
+
+        var pip = Check(leaves, "pip cache");
+        pip.IsChecked = false;
 
         Assert.Empty(vm.PlanRows);
         Assert.Equal("Ничего не выбрано", vm.SelectedSummary);

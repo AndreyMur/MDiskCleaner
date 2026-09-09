@@ -258,6 +258,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Категория:" Foreground="#666666" />
@@ -298,6 +299,26 @@
                                 <TextBlock Grid.Row="7" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.InUse, Converter={StaticResource InUseTextConverter}}"
                                            TextWrapping="Wrap" />
+
+                                <StackPanel Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2"
+                                            Margin="0,8,0,0"
+                                            Visibility="{Binding SelectedNode.IsInUse, Converter={StaticResource BoolToVisibilityConverter}}">
+                                    <TextBlock FontWeight="SemiBold" Foreground="#C42B1C"
+                                               Text="Используется процессами (IN_USE)"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding SelectedNode.InUseOwnerText}"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding SelectedNode.BlockingText}"
+                                               Foreground="#444444"
+                                               TextWrapping="Wrap"
+                                               Visibility="{Binding SelectedNode.HasBlockingProcesses, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                    <TextBlock Margin="0,4,0,0"
+                                               Text="{Binding SelectedNode.InUseAdviceText}"
+                                               Foreground="#B46A00"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
                             </Grid>
                         </StackPanel>
                     </ScrollViewer>
