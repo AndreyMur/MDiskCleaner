@@ -1,11 +1,11 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DiskCleaner.Core.Analysis;
-using DiskCleaner.Core.Caches;
 using DiskCleaner.Core.Cleaning;
 using DiskCleaner.Core.Models;
 using DiskCleaner.Core.Reports;
@@ -19,14 +19,16 @@ namespace DiskCleaner.Gui.ViewModels;
 /// ViewModel главного экрана «Анализ/План очистки» (FR-1.1, FR-1.11). Тонкий слой поверх ядра:
 /// выбор источника анализа (полный скан диска или известные объекты профиля/реестра/системы),
 /// запуск скана в фоне с прогрессом и отменой, дерево категорий и таблица плана. Дополнительно —
-/// экспорт плана в Markdown/JSON/CSV (FR-1.12) и раздел «Было/стало» со сравнением с предыдущим
-/// сканом (FR-1.13). Вся бизнес-логика — в <see cref="IAnalysisCoordinator"/>, <see cref="PlanExporter"/>
-/// и сервисах ядра.
+/// экспорт плана в Markdown/JSON/CSV (FR-1.12), раздел «Было/стало» со сравнением с предыдущим
+/// сканом (FR-1.13) и выполнение полного плана по фазам «кэши → остатки → ПО → системные шаги»
+/// с подтверждением опасных шагов и итоговым отчётом (FR-5.14–5.19). Вся бизнес-логика — в
+/// <see cref="IAnalysisCoordinator"/>, <see cref="Core.Cleaning.CleanPlanRunner"/> и сервисах ядра.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IAnalysisCoordinator _coordinator;
-    private readonly PlanExecutor _plan;
+    private readonly IPlanRunExecutor _planRunner;
+    private readonly IPlanRunDialogService _planDialogs;
     private readonly SchedulerService _scheduler;
     private readonly PlanSnapshotService _snapshots;
     private readonly ISaveFileDialogService _saveDialog;
@@ -40,10 +42,13 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel(
         IAnalysisCoordinator? coordinator = null,
         PlanSnapshotService? snapshotService = null,
-        ISaveFileDialogService? saveFileDialog = null)
+        ISaveFileDialogService? saveFileDialog = null,
+        IPlanRunExecutor? planExecutor = null,
+        IPlanRunDialogService? planDialogs = null)
     {
         _coordinator = coordinator ?? new AnalysisCoordinator();
-        _plan = new PlanExecutor();
+        _planRunner = planExecutor ?? new PlanRunExecutor();
+        _planDialogs = planDialogs ?? new MessageBoxPlanRunDialogService();
         _scheduler = new SchedulerService();
         _snapshots = snapshotService ?? new PlanSnapshotService();
         _saveDialog = saveFileDialog ?? new WpfSaveFileDialogService();
@@ -259,32 +264,47 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        var owner = Application.Current.MainWindow;
-        if (!ConfirmPlan(owner, selectedLeaves))
-        {
-            return;
-        }
-
         var dryRun = DryRun;
+        var items = selectedLeaves.Select(l => l.Item).ToList();
+        var secondEchelon = SecondEchelonCandidates(items);
+
         await RunOperationAsync(
             dryRun ? "Предпросмотр (dry-run)" : "Очистка",
             async (ct, text) =>
             {
-                var cleanProgress = new Progress<CleanProgress>(p =>
-                    text.Report($"{p.CompletedItems}/{p.TotalItems} · {p.CurrentName} · освобождено {CleanReportFormatter.FormatBytes(p.BytesCleaned)}"));
+                var progress = new Progress<CleanPlanRunProgress>(p =>
+                    text.Report(PlanProgressText(p)));
 
-                var options = new CleanOptions { DryRun = dryRun };
-                var report = await _plan.CleanAsync(
-                    selectedLeaves.Select(l => l.Item),
-                    options,
-                    cleanProgress,
-                    ct);
+                // FR-5.17: опасные шаги подтверждаются по одному; dry-run выполняется без
+                // подтверждений (движок показывает исход DryRun для всех объектов).
+                var options = new CleanPlanRunOptions
+                {
+                    DryRun = dryRun,
+                    ConfirmDangerousStep = dryRun ? null : item => _planDialogs.ConfirmDangerousStepAsync(item),
+                    SecondEchelonCandidates = secondEchelon
+                };
 
-                ReportWindow.Show(owner, report);
+                var report = await _planRunner.RunAsync(items, options, progress, ct);
+
+                // Итоговый отчёт (FR-5.14/5.15/5.16): «освобождено X», план против факта,
+                // сводка по фазам, пропущенные/заблокированные с причинами и «повторить позже»,
+                // снимок до/после и кандидаты второго эшелона. Окно отчёта сохраняет Markdown/JSON.
+                _planDialogs.ShowRunReport(report);
+
+                if (report.Canceled)
+                {
+                    StatusText = BuildRunSummary(report) + " Повторный запуск безопасен и идемпотентен (FR-5.18).";
+                    return;
+                }
 
                 if (!dryRun)
                 {
+                    text.Report("обновление плана после очистки…");
                     await RefreshAfterCleanAsync(ct);
+                }
+                else
+                {
+                    StatusText = BuildRunSummary(report);
                 }
             });
     }
@@ -352,7 +372,10 @@ public sealed partial class MainViewModel : ObservableObject
         try
         {
             await work(cts.Token, progress);
-            if (operation != "Анализ" && operation != "Анализ (по расписанию)" && operation != "Очистка")
+            if (operation != "Анализ" &&
+                operation != "Анализ (по расписанию)" &&
+                operation != "Очистка" &&
+                operation != "Предпросмотр (dry-run)")
             {
                 StatusText = operation + " завершена.";
             }
@@ -485,6 +508,12 @@ public sealed partial class MainViewModel : ObservableObject
             RootNodes.Add(new TreeItemViewModel(category, null, OnLeafSelectionChanged));
         }
 
+        // Дефолтный план (FR-5.3/5.4, NFR): автоматически отмечаются только безопасные объекты
+        // (низкий риск, не используются, не «Review manually»). Системные шаги (Temp, Корзина,
+        // SoftwareDistribution, гибернация, Windows.old, пользовательские данные) по умолчанию
+        // выключены — они выполняются только по явному выбору пользователя.
+        ApplyDefaultSelection();
+
         var summary = result.Items.Count == 0
             ? "Объекты для очистки не найдены."
             : $"Найдено объектов: {result.Items.Count} ({CleanReportFormatter.FormatBytes(result.TotalBytes)}), используется: {result.InUseItems}, пропущено (нет пути): {result.SkippedNonexistent}";
@@ -495,9 +524,28 @@ public sealed partial class MainViewModel : ObservableObject
             StatusText += $" Ошибок доступа: {result.Errors.Count} (подробности в журнале).";
         }
 
+        if (result.Items.Count > 0)
+        {
+            StatusText += " Системные шаги по умолчанию выключены — отмечаются явно.";
+        }
+
         RefreshFreeSpace();
         UpdatePlan();
     }
+
+    private void ApplyDefaultSelection()
+    {
+        var categorizer = new CategorizationService();
+        foreach (var root in RootNodes)
+        {
+            root.ApplyDefaults(item => IsAutoSelected(item, categorizer));
+        }
+    }
+
+    private static bool IsAutoSelected(CleanupItem item, CategorizationService categorizer) =>
+        !item.InUse &&
+        CleanPlanPhases.PhaseOf(item.Category) != CleanPlanPhase.SystemSteps &&
+        categorizer.DefaultActionFor(item) == CleanupDefaultAction.Clean;
 
     private void OnLeafSelectionChanged() => UpdatePlan();
 
@@ -523,37 +571,69 @@ public sealed partial class MainViewModel : ObservableObject
             .Where(leaf => leaf.IsChecked == true)
             .ToList();
 
-    private bool ConfirmPlan(Window owner, IReadOnlyList<TreeItemViewModel> selectedLeaves)
+    /// <summary>
+    /// «Кандидаты второго эшелона» (FR-5.19): установленные программы, которые пользователь
+    /// решил НЕ удалять. Ядро показывает их в итоговом отчёте, если фактически освобождено
+    /// меньше плана (крупные приложения ≥ <see cref="CleanPlanRunOptions.SecondEchelonMinBytes"/>).
+    /// </summary>
+    private IReadOnlyList<CleanupItem>? SecondEchelonCandidates(IReadOnlyList<CleanupItem> planItems)
     {
-        var dangerous = selectedLeaves
-            .Where(l => l.Item.Risk != CleanupRisk.Low)
+        var analysis = _lastAnalysis;
+        if (analysis is null)
+        {
+            return null;
+        }
+
+        var plannedKeys = planItems.Select(i => i.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return analysis.Items
+            .Where(i => i.Category == CleanupCategory.InstalledApp)
+            .Where(i => !plannedKeys.Contains(i.Key))
             .ToList();
+    }
 
-        var message = DryRun
-            ? $"Предпросмотр (dry-run): будет показано, что удалится для {selectedLeaves.Count} объектов (~{CleanReportFormatter.FormatBytes(selectedLeaves.Sum(l => l.Item.EffectiveSizeBytes))}). Ничего удалено не будет."
-            : $"Выполнить очистку {selectedLeaves.Count} объектов? Освободится примерно {CleanReportFormatter.FormatBytes(selectedLeaves.Sum(l => l.Item.EffectiveSizeBytes))}.";
-
-        if (dangerous.Count > 0 && !DryRun)
+    /// <summary>Прогресс выполнения плана по шагам и фазам (FR-5.17): «шаг N/M · фаза · объект · освобождено X».</summary>
+    private static string PlanProgressText(CleanPlanRunProgress p)
+    {
+        var builder = new StringBuilder();
+        builder.Append($"{p.CompletedSteps}/{p.TotalSteps} шагов · {p.PhaseText}");
+        if (!string.IsNullOrWhiteSpace(p.CurrentStep))
         {
-            message += Environment.NewLine + Environment.NewLine +
-                       "Требуют подтверждения (средний/высокий риск):" + Environment.NewLine +
-                       string.Join(Environment.NewLine, dangerous.Select(l => $"• {l.Item.DisplayName} — {l.Item.Warning ?? "рискованная операция"}"));
+            builder.Append(" · ").Append(p.CurrentStep);
         }
 
-        if (DryRun)
+        if (!string.IsNullOrWhiteSpace(p.Detail))
         {
-            MessageBox.Show(owner, message, "Предпросмотр", MessageBoxButton.OK, MessageBoxImage.Information);
-            return true;
+            builder.Append(" · ").Append(p.Detail);
         }
 
-        var result = MessageBox.Show(
-            owner,
-            message,
-            "Подтверждение очистки",
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning);
+        builder.Append(" · освобождено ").Append(CleanReportFormatter.FormatBytes(p.BytesCleaned));
+        return builder.ToString();
+    }
 
-        return result == MessageBoxResult.OK;
+    /// <summary>Итоговая строка статуса после выполнения плана (FR-5.14/5.15).</summary>
+    private static string BuildRunSummary(CleanPlanRunReport report)
+    {
+        var head = report.DryRun
+            ? "Предпросмотр (dry-run) завершён"
+            : report.Canceled
+                ? "Выполнение плана прервано между шагами (FR-5.18)"
+                : "План выполнен";
+
+        var summary =
+            $"{head}: освобождено {CleanReportFormatter.FormatBytes(report.FreedBytes)} " +
+            $"(план ≈ {CleanReportFormatter.FormatBytes(report.PlannedBytes)}; на диске {CleanReportFormatter.FormatBytes(report.DiskFreedBytes)}).";
+
+        if (report.SkippedOrBlocked.Count > 0)
+        {
+            summary += $" Пропущено/заблокировано: {report.SkippedOrBlocked.Count} (причины — в отчёте).";
+        }
+
+        if (!report.DryRun && report.PlannedBytes > 0 && !report.WithinPlanTolerance)
+        {
+            summary += " Освобождено меньше плана — в отчёте показаны кандидаты «второго эшелона» (FR-5.19).";
+        }
+
+        return summary;
     }
 
     private static IReadOnlyList<AnalysisSourceOption> BuildSources()
