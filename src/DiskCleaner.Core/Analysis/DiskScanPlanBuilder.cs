@@ -84,10 +84,10 @@ public sealed class DiskScanPlanBuilder
                     Category = CleanupCategory.RecycleBin,
                     Risk = CleanupRisk.Low,
                     Target = CleanupTarget.Directory,
-                    DeleteContentsOnly = true,
+                    EmptyRecycleBinDrive = Path.GetPathRoot(system.Path),
                     SizeBytes = system.SizeBytes,
                     FileCount = system.FileCount,
-                    Description = "Содержимое Корзины выбранного диска для текущего пользователя.",
+                    Description = "Очистка Корзины выбранного диска штатным API оболочки Windows (SHEmptyRecycleBin).",
                     Warning = "Содержимое Корзины будет удалено безвозвратно (восстановление станет невозможным)."
                 });
                 continue;
@@ -122,6 +122,7 @@ public sealed class DiskScanPlanBuilder
             CleanCommandArgs = "/h off",
             SizeBytes = system.SizeBytes,
             FileCount = system.FileCount,
+            VerifyPathAbsent = system.Path,
             Description = "Файл гибернации hiberfil.sys (файл на системном диске) будет удалён.",
             Warning = "Отключает гибернацию; быстрый запуск сохраняется. Операция обратима (powercfg /h on). Требуются права администратора (UAC)."
         };

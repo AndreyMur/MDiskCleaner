@@ -82,6 +82,14 @@ public sealed class DirectoryDeleter
             return new DeletionOutcome { Denied = true, Errors = [DenyList.Describe(item.Path)] };
         }
 
+        // Очистка Корзины выбранного диска (FR-5.2): штатное API оболочки (SHEmptyRecycleBin),
+        // а не прямое удаление содержимого $Recycle.Bin. Переживает единичные блокировки —
+        // оболочка очищает доступное и не прерывает прогон.
+        if (item.EmptyRecycleBinDrive is not null)
+        {
+            return await EmptyRecycleBinAsync(item, cancellationToken);
+        }
+
         if (item.MoveToRecycleBin)
         {
             return await MoveToRecycleBinAsync(item.Path, cancellationToken);
@@ -135,6 +143,27 @@ public sealed class DirectoryDeleter
 
     private static int ConcurrencyFor(long? sizeHint) =>
         sizeHint is > LargeDirectoryThresholdBytes ? LargeDirectoryConcurrency : DefaultConcurrency;
+
+    private async Task<DeletionOutcome> EmptyRecycleBinAsync(CleanupItem item, CancellationToken cancellationToken)
+    {
+        if (_recycleBin is null)
+        {
+            return new DeletionOutcome { Errors = ["Очистка Корзины недоступна: не настроен сервис Корзины."] };
+        }
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                _recycleBin.Empty(item.EmptyRecycleBinDrive!);
+                return new DeletionOutcome { DeletedFiles = 0, FreedBytes = 0 };
+            }
+            catch (Exception ex)
+            {
+                return new DeletionOutcome { Errors = [$"Корзина диска '{item.EmptyRecycleBinDrive}': {ex.Message}"] };
+            }
+        }, cancellationToken);
+    }
 
     private async Task<DeletionOutcome> MoveToRecycleBinAsync(string path, CancellationToken cancellationToken)
     {

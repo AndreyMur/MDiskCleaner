@@ -67,8 +67,22 @@ public sealed class CleanupItem
     /// <summary>Переместить в Корзину вместо безвозвратного удаления (Корзина-режим для пользовательских данных).</summary>
     public bool MoveToRecycleBin { get; init; }
 
+    /// <summary>
+    /// Очистить Корзину выбранного диска (FR-5.2): корень диска (например, <c>C:\</c>).
+    /// Исполняется штатным API оболочки Windows (<see cref="Cleaning.RecycleBinService.Empty"/>)
+    /// — не прямое удаление каталога <c>$Recycle.Bin</c>. <c>null</c> — обычный объект очистки.
+    /// </summary>
+    public string? EmptyRecycleBinDrive { get; init; }
+
     /// <summary>Имя службы, которую требуется остановить на время очистки каталога (elevated-шаг ServiceCleanDirectory).</summary>
     public string? ServiceName { get; init; }
+
+    /// <summary>
+    /// После успешного выполнения штатной команды (exit-код 0) elevated-исполнитель проверяет,
+    /// что файл по этому пути исчез (например, <c>hiberfil.sys</c> после <c>powercfg /h off</c>,
+    /// FR-5.4). Если файл остался — шаг не считается успешным. <c>null</c> — проверка не выполняется.
+    /// </summary>
+    public string? VerifyPathAbsent { get; init; }
 
     public bool IsGroup => string.IsNullOrEmpty(Path) && string.IsNullOrEmpty(RegistryDeletePath) && !CommandOnly;
 

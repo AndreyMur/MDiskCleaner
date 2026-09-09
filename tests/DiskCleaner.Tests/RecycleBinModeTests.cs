@@ -11,7 +11,11 @@ public class RecycleBinModeTests
     {
         public List<string> MovedPaths { get; } = new();
 
+        public List<string> EmptiedDrives { get; } = new();
+
         public bool FailNext { get; set; }
+
+        public bool FailEmpty { get; set; }
 
         public void MoveToRecycleBin(string path)
         {
@@ -21,6 +25,16 @@ public class RecycleBinModeTests
             }
 
             MovedPaths.Add(path);
+        }
+
+        public void Empty(string driveRoot)
+        {
+            if (FailEmpty)
+            {
+                throw new IOException("Shell empty refused");
+            }
+
+            EmptiedDrives.Add(driveRoot);
         }
     }
 
