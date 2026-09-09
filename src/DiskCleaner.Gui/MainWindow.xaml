@@ -1,8 +1,11 @@
 ﻿<Window x:Class="DiskCleaner.Gui.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Icon="pack://application:,,,/DiskCleaner;component/Assets/DiskCleaner.ico"
         xmlns:converters="clr-namespace:DiskCleaner.Gui.Converters"
         xmlns:viewModels="clr-namespace:DiskCleaner.Gui.ViewModels"
+        Background="{StaticResource WindowBackgroundBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
         Title="DiskCleaner — анализ, остатки и деинсталляция"
         Height="760" Width="1280"
         MinHeight="560" MinWidth="980"
@@ -25,7 +28,7 @@
                     Value="{Binding ChangeKind, Converter={StaticResource ChangeKindBrushConverter}}" />
         </Style>
 
-        <Style x:Key="ToolbarButton" TargetType="Button">
+        <Style x:Key="ToolbarButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Height" Value="30" />
             <Setter Property="MinWidth" Value="110" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -41,7 +44,7 @@
     </Window.Resources>
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#F3F3F3" Padding="10,6">
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBackgroundBrush}" Padding="10,6">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -162,9 +165,9 @@
                 <TreeView x:Name="CategoryTree"
                           ItemsSource="{Binding RootNodes}"
                           SelectedItemChanged="OnTreeSelectionChanged"
-                          BorderBrush="#DDDDDD">
+                          BorderBrush="{StaticResource BorderBrush}">
                     <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem">
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded}" />
                         </Style>
                     </TreeView.ItemContainerStyle>
@@ -196,7 +199,7 @@
                                         <StackPanel MaxWidth="460">
                                             <TextBlock Text="{Binding Item.Description}" TextWrapping="Wrap" />
                                             <TextBlock Text="{Binding Item.Warning}"
-                                                       TextWrapping="Wrap" Foreground="#B46A00" />
+                                                       TextWrapping="Wrap" Foreground="{StaticResource WarningTextBrush}" />
                                         </StackPanel>
                                     </TextBlock.ToolTip>
                                 </TextBlock>
@@ -205,7 +208,7 @@
                                            Margin="8,0,0,0"
                                            VerticalAlignment="Center"
                                            FontSize="11"
-                                           Foreground="#888888"
+                                           Foreground="{StaticResource TextTertiaryBrush}"
                                            Text="{Binding CategoryObjectsText}" />
 
                                 <TextBlock Grid.Column="3"
@@ -261,41 +264,41 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Категория:" Foreground="#666666" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Категория:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="0" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.Category, Converter={StaticResource CategoryTextConverter}}" />
 
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Риск:" Foreground="#666666" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Риск:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" Margin="6,0,0,2"
                                            FontWeight="SemiBold"
                                            Text="{Binding SelectedNode.Item.Risk, Converter={StaticResource RiskTextConverter}}"
                                            Foreground="{Binding SelectedNode.Item.Risk, Converter={StaticResource RiskBrushConverter}}" />
 
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Требует админ:" Foreground="#666666" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Требует админ:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.RequiresAdmin, Converter={StaticResource YesNoTextConverter}}" />
 
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Размер:" Foreground="#666666" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Размер:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="3" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.EffectiveSizeBytes, Converter={StaticResource SizeTextConverter}}" />
 
-                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Команда:" Foreground="#666666" />
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Команда:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="4" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.CleanCommand}"
                                            TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Путь:" Foreground="#666666" />
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="Путь:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="5" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.Path}"
                                            TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Примечание:" Foreground="#666666" />
+                                <TextBlock Grid.Row="6" Grid.Column="0" Text="Примечание:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="6" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.Warning}"
-                                           Foreground="#B46A00"
+                                           Foreground="{StaticResource WarningTextBrush}"
                                            TextWrapping="Wrap" />
 
-                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Метки:" Foreground="#666666" />
+                                <TextBlock Grid.Row="7" Grid.Column="0" Text="Метки:" Foreground="{StaticResource TextSecondaryBrush}" />
                                 <TextBlock Grid.Row="7" Grid.Column="1" Margin="6,0,0,2"
                                            Text="{Binding SelectedNode.Item.InUse, Converter={StaticResource InUseTextConverter}}"
                                            TextWrapping="Wrap" />
@@ -303,7 +306,7 @@
                                 <StackPanel Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2"
                                             Margin="0,8,0,0"
                                             Visibility="{Binding SelectedNode.IsInUse, Converter={StaticResource BoolToVisibilityConverter}}">
-                                    <TextBlock FontWeight="SemiBold" Foreground="#C42B1C"
+                                    <TextBlock FontWeight="SemiBold" Foreground="{StaticResource ErrorTextBrush}"
                                                Text="Используется процессами (IN_USE)"
                                                TextWrapping="Wrap" />
                                     <TextBlock Margin="0,4,0,0"
@@ -311,12 +314,12 @@
                                                TextWrapping="Wrap" />
                                     <TextBlock Margin="0,4,0,0"
                                                Text="{Binding SelectedNode.BlockingText}"
-                                               Foreground="#444444"
+                                               Foreground="{StaticResource TextBodyBrush}"
                                                TextWrapping="Wrap"
                                                Visibility="{Binding SelectedNode.HasBlockingProcesses, Converter={StaticResource BoolToVisibilityConverter}}" />
                                     <TextBlock Margin="0,4,0,0"
                                                Text="{Binding SelectedNode.InUseAdviceText}"
-                                               Foreground="#B46A00"
+                                               Foreground="{StaticResource WarningTextBrush}"
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </Grid>
@@ -331,7 +334,7 @@
                     <TextBlock Margin="0,0,0,4"
                                Text="{Binding ComparisonSummary}"
                                TextWrapping="Wrap"
-                               Foreground="#444444" />
+                               Foreground="{StaticResource TextBodyBrush}" />
                     <DataGrid ItemsSource="{Binding ComparisonRows}"
                               MaxHeight="150"
                               AutoGenerateColumns="False"
@@ -339,7 +342,7 @@
                               CanUserAddRows="False"
                               HeadersVisibility="Column"
                               GridLinesVisibility="Horizontal"
-                              BorderBrush="#DDDDDD"
+                              BorderBrush="{StaticResource BorderBrush}"
                               RowHeaderWidth="0"
                               SelectionMode="Single"
                               VerticalScrollBarVisibility="Auto">
@@ -366,7 +369,7 @@
                           CanUserAddRows="False"
                           HeadersVisibility="Column"
                           GridLinesVisibility="Horizontal"
-                          BorderBrush="#DDDDDD"
+                          BorderBrush="{StaticResource BorderBrush}"
                           RowHeaderWidth="0"
                           SelectionMode="Single">
                     <DataGrid.Columns>

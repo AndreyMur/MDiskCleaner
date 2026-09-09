@@ -10,7 +10,13 @@
     <RootNamespace>DiskCleaner.Gui</RootNamespace>
     <AssemblyName>DiskCleaner</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\DiskCleaner.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\DiskCleaner.ico" />
+    <Resource Include="Assets\DiskCleaner_256.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
